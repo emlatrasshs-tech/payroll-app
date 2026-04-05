@@ -12,16 +12,19 @@ import {
   Search, Calendar, Building2, Briefcase, CreditCard,
   Menu, ChevronDown, Printer, TrendingUp, Home,
   ChevronRight, Download, RefreshCw, UserCheck,
-  ChevronUp, Bell, Filter, ArrowUpRight, ArrowDownRight, Timer
+  ChevronUp, Bell, Filter, ArrowUpRight, ArrowDownRight, Timer,
+  UserMinus, Banknote, Lock, Unlock, CalendarX,
+  ShieldCheck, Building, CreditCard as CreditCardIcon, PlusCircle, MinusCircle
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────
 // CONSTANTS & UTILITIES
 // ─────────────────────────────────────────────────────────────
-const DEPARTMENTS = ['Events', 'Social Media', 'Human Resources', 'Operations'];
+const DEPARTMENTS = ['Events', 'Social Media', 'Human Resources', 'Operations', 'Creative', 'Support'];
 const DEPT_COLORS = {
   Events: '#c2410c', 'Social Media': '#f59e0b',
-  'Human Resources': '#10b981', Operations: '#ec4899'
+  'Human Resources': '#10b981', Operations: '#ec4899',
+  Creative: '#8b5cf6', Support: '#0ea5e9',
 };
 const CHART_COLORS = ['#c2410c','#f59e0b','#10b981','#ec4899','#3b82f6','#8b5cf6'];
 const POSITIONS = {
@@ -32,6 +35,20 @@ const POSITIONS = {
 };
 const EMP_TYPES = ['Regular','Probationary','Full-Time','Part-Time','Contractor'];
 const PAY_FREQS = ['Bi-Monthly','Monthly','Bi-Weekly','Weekly'];
+
+const LEAVE_TYPES = [
+  { id:'absent',      label:'Absent (Unexcused)',     paid:false, daysField:true,  badge:'bg-red-100 text-red-700'            },
+  { id:'late',        label:'Tardy / Late',           paid:false, daysField:false, badge:'bg-yellow-100 text-yellow-700'      },
+  { id:'sick',        label:'Sick Leave',             paid:true,  daysField:true,  badge:'bg-blue-100 text-blue-700'          },
+  { id:'vacation',    label:'Vacation Leave',         paid:true,  daysField:true,  badge:'bg-teal-100 text-teal-700'          },
+  { id:'sil',         label:'Service Incentive Leave',paid:true,  daysField:true,  badge:'bg-purple-100 text-purple-700'      },
+  { id:'personal',    label:'Personal Leave',         paid:false, daysField:true,  badge:'bg-orange-100 text-orange-700'      },
+  { id:'maternity',   label:'Maternity Leave',        paid:true,  daysField:true,  badge:'bg-pink-100 text-pink-700'          },
+  { id:'paternity',   label:'Paternity Leave',        paid:true,  daysField:true,  badge:'bg-sky-100 text-sky-700'            },
+  { id:'emergency',   label:'Emergency Leave',        paid:false, daysField:true,  badge:'bg-amber-100 text-amber-700'        },
+  { id:'bereavement', label:'Bereavement Leave',      paid:false, daysField:true,  badge:'bg-gray-200 text-gray-700'          },
+  { id:'other',       label:'Other Leave',            paid:false, daysField:true,  badge:'bg-gray-100 text-gray-500'          },
+];
 const MONTH_NAMES = ['January','February','March','April','May','June',
   'July','August','September','October','November','December'];
 
@@ -60,39 +77,158 @@ function calcGovContribs(monthlySalary) {
 
 // cutOff: 1 = basic half-salary only, no allowance, no gov deductions
 //         2 = basic half-salary + allowance, apply gov deductions (no tax per policy)
-function calcPayslip(emp, periodDays = 11, absences = 0, lateMinutes = 0, overtime = 0, cutOff = 2) {
+function calcPayslip(emp, periodDays = 11, absences = 0, lateMinutes = 0, overtime = 0, cutOff = 2, reimbursement = 0, otPayDirect = 0) {
   const monthlySalary = emp.salary || 0;
   const halfSalary    = monthlySalary / 2;
   const allowance     = cutOff === 2 ? (emp.allowance || 0) : 0;
-  const reimbursement = 0; // user-entered per payslip; default 0
-  const sssLoan       = 0; // user-entered per payslip; default 0
-  const hdmfLoan      = 0; // user-entered per payslip; default 0
-  const dailyRate     = monthlySalary / 22;
-  const workingDays   = 11; // each cut-off has ~11 working days
+  const dailyRate     = monthlySalary / 26;
+  const workingDays   = 11;
   const daysAttended  = Math.max(0, workingDays - absences);
   const absenceDeduct = dailyRate * absences;
   const lateDeduct    = (dailyRate / 8 / 60) * lateMinutes;
-  const overtimePay   = (dailyRate / 8) * 1.25 * overtime;
+  // otPayDirect = pre-computed from approved OT entries; falls back to simple formula
+  const overtimePay   = otPayDirect > 0 ? otPayDirect : (dailyRate / 8) * 1.25 * overtime;
   const grossPay      = Math.max(0, halfSalary + allowance + reimbursement - absenceDeduct - lateDeduct + overtimePay);
 
-  // Gov deductions only on Cut-Off 2; tax excluded per company policy
+  // Gov deductions only on Cut-Off 2
+  // Use manual overrides if set, otherwise auto-compute from salary brackets
   let sss = 0, philHealth = 0, pagIbig = 0;
   if (cutOff === 2) {
-    const gov = calcGovContribs(monthlySalary);
+    const gov  = calcGovContribs(monthlySalary);
+    sss        = emp.sssContribOverride   != null && emp.sssContribOverride   !== '' ? +emp.sssContribOverride   : gov.sss;
+    philHealth = emp.philHealthContribOverride != null && emp.philHealthContribOverride !== '' ? +emp.philHealthContribOverride : gov.philHealth;
+    pagIbig    = emp.hdmfContribOverride  != null && emp.hdmfContribOverride  !== '' ? +emp.hdmfContribOverride  : gov.pagIbig;
+  }
+
+  // Loan deductions (each cut-off) — always deducted regardless of cut-off
+  const sssLoan     = +(emp.sssLoanPerCutOff  || 0);
+  const hdmfLoan    = +(emp.hdmfLoanPerCutOff || 0);
+  const companyLoan = +(emp.companyLoan?.perCutOff || 0);
+  const otherLoans  = (emp.otherLoans || []).reduce((s, l) => s + (+(l.perCutOff || 0)), 0);
+
+  const totalGovDeduct  = sss + philHealth + pagIbig;
+  const totalLoanDeduct = sssLoan + hdmfLoan + companyLoan + otherLoans;
+  const totalDeduct     = totalGovDeduct + totalLoanDeduct;
+  const netPay          = grossPay - totalDeduct;
+
+  return {
+    grossPay, baseSalary: halfSalary, allowance, reimbursement,
+    absenceDeduct, lateDeduct, overtimePay,
+    sss, philHealth, pagIbig, tax: 0,
+    sssLoan, hdmfLoan, companyLoan, otherLoans,
+    totalGovDeduct, totalLoanDeduct,
+    totalDeductions: totalDeduct, netPay,
+    dailyRate, workingDays, daysAttended, absences, lateMinutes, overtime, cutOff,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+// FINAL PAY COMPUTATION ENGINE
+// ─────────────────────────────────────────────────────────────
+function calcFinalPay(emp, lwdStr, otEntries) {
+  const lwdDate  = new Date(lwdStr + 'T00:00:00');
+  const lwdYear  = lwdDate.getFullYear();
+  const lwdMonth = lwdDate.getMonth() + 1;
+  const lwdDay   = lwdDate.getDate();
+
+  // Determine which cut-off period the LWD falls in
+  const sched      = getCutOffSchedule(lwdYear, lwdMonth);
+  const cutOffNum  = lwdDay <= 15 ? 1 : 2;
+  const cutOffSched = cutOffNum === 1 ? sched.cutOff1 : sched.cutOff2;
+
+  // Days actually worked in the final cut-off period
+  const cutOffStart        = new Date(cutOffSched.startDate + 'T00:00:00');
+  const daysWorkedInPeriod = Math.max(1, Math.floor((lwdDate - cutOffStart) / 86400000) + 1);
+
+  const dailyRate      = (emp.salary || 0) / 26;
+  const proratedSalary = dailyRate * daysWorkedInPeriod;
+
+  // Allowance only on cut-off 2
+  const allowance = cutOffNum === 2 ? (emp.allowance || 0) : 0;
+
+  // Gov deductions only on cut-off 2
+  let sss = 0, philHealth = 0, pagIbig = 0;
+  if (cutOffNum === 2) {
+    const gov = calcGovContribs(emp.salary || 0);
     sss       = gov.sss;
     philHealth = gov.philHealth;
     pagIbig   = gov.pagIbig;
   }
 
-  const totalDeduct = sss + philHealth + pagIbig + sssLoan + hdmfLoan;
-  const netPay      = grossPay - totalDeduct;
+  // Pending OT pay (all OT entries for this employee not yet in a paid run)
+  const empOT = (otEntries || []).filter(e => e.employeeId === emp.id);
+  const otPay = empOT.reduce((sum, e) => sum + ((e.pay && e.pay.totalPay) || 0), 0);
+
+  // Prorated 13th month pay (Philippine standard: basic salary earned in calendar year / 12)
+  const yearStart = new Date(Math.max(
+    new Date(`${lwdYear}-01-01T00:00:00`).getTime(),
+    new Date((emp.hireDate || `${lwdYear}-01-01`) + 'T00:00:00').getTime()
+  ));
+  const daysWorkedThisYear = Math.max(1, Math.floor((lwdDate - yearStart) / 86400000) + 1);
+  const thirteenthMonth    = ((emp.salary || 0) * daysWorkedThisYear) / (26 * 12);
+
+  const grossFinalPay    = proratedSalary + allowance + otPay + thirteenthMonth;
+  const totalDeductions  = sss + philHealth + pagIbig;
+  const netFinalPay      = grossFinalPay - totalDeductions;
+
+  // 30-day hold release date
+  const relDate = new Date(lwdDate);
+  relDate.setDate(relDate.getDate() + 30);
+
   return {
-    grossPay, baseSalary: halfSalary, allowance, reimbursement,
-    absenceDeduct, lateDeduct, overtimePay,
-    sss, philHealth, pagIbig, tax: 0, sssLoan, hdmfLoan,
-    totalDeductions: totalDeduct, netPay,
-    dailyRate, workingDays, daysAttended, absences, lateMinutes, overtime, cutOff,
+    dailyRate, daysWorkedInPeriod, proratedSalary,
+    allowance, otPay, thirteenthMonth,
+    grossFinalPay, sss, philHealth, pagIbig,
+    totalDeductions, netFinalPay,
+    cutOffNum, cutOffPeriod: cutOffSched.label,
+    daysWorkedThisYear,
+    releaseDate: relDate.toISOString().split('T')[0],
+    releaseDateLabel: relDate.toLocaleDateString('en-PH', { year:'numeric', month:'long', day:'numeric' }),
   };
+}
+
+// ─────────────────────────────────────────────────────────────
+// SIL COMPUTATION  (5 days/year, accrues monthly after 1yr service)
+// ─────────────────────────────────────────────────────────────
+function calcSIL(emp, attendanceRecords, asOfDate) {
+  if (!emp || !emp.hireDate) return { eligible:false, accrued:0, used:0, balance:0 };
+  const hireDate    = new Date(emp.hireDate + 'T00:00:00');
+  const asOf        = new Date(asOfDate    + 'T00:00:00');
+  const eligibleDate = new Date(hireDate);
+  eligibleDate.setFullYear(eligibleDate.getFullYear() + 1);
+
+  if (asOf < eligibleDate) {
+    return {
+      eligible:     false,
+      eligibleDate: eligibleDate.toISOString().split('T')[0],
+      daysLeft:     Math.ceil((eligibleDate - asOf) / 86400000),
+      accrued: 0, used: 0, balance: 0, maxPerYear: 5,
+    };
+  }
+
+  // Accrual restarts each calendar year; starting from the later of Jan 1 or eligibility date
+  const cy         = asOf.getFullYear();
+  const yearStart  = new Date(`${cy}-01-01T00:00:00`);
+  const accrualStart = new Date(Math.max(eligibleDate.getTime(), yearStart.getTime()));
+
+  // Months elapsed (inclusive of current month)
+  let months = (asOf.getFullYear() - accrualStart.getFullYear()) * 12
+             + (asOf.getMonth()    - accrualStart.getMonth());
+  if (asOf.getDate() >= accrualStart.getDate()) months++;
+
+  const accrued = parseFloat(Math.min(months * (5 / 12), 5).toFixed(2));
+
+  // SIL used this calendar year (support both lowercase 'sil' and old-style records)
+  const yearStartStr = `${cy}-01-01`;
+  const yearEndStr   = `${cy}-12-31`;
+  const used = (attendanceRecords || [])
+    .filter(r => r.employeeId === emp.id
+              && (r.type === 'sil' || r.type === 'Service Incentive Leave')
+              && r.date >= yearStartStr && r.date <= yearEndStr)
+    .reduce((s, r) => s + (r.days || 1), 0);
+
+  const balance = parseFloat(Math.max(0, accrued - used).toFixed(2));
+  return { eligible:true, eligibleDate: eligibleDate.toISOString().split('T')[0], accrued, used, balance, maxPerYear:5 };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -407,17 +543,19 @@ const SEED_ATTENDANCE = SEED_EMPLOYEES.slice(0,5).map(emp => ({
   type: Math.random() > 0.5 ? 'Absent' : 'Late',
   minutes: Math.floor(Math.random() * 120) + 15,
   reason: 'Personal',
+  status: 'Approved',
 }));
 
 // ─────────────────────────────────────────────────────────────
 // STATE MANAGEMENT
 // ─────────────────────────────────────────────────────────────
 const initialState = {
-  employees:   SEED_EMPLOYEES,
-  payrollRuns: SEED_RUNS,
-  attendance:  SEED_ATTENDANCE,
-  otEntries:   [],
-  toasts:      [],
+  employees:       SEED_EMPLOYEES,
+  payrollRuns:     SEED_RUNS,
+  attendance:      SEED_ATTENDANCE,
+  otEntries:       [],
+  finalPayRecords: [],
+  toasts:          [],
 };
 
 function reducer(state, action) {
@@ -444,6 +582,46 @@ function reducer(state, action) {
       return { ...state, otEntries: state.otEntries.filter(e => e.id !== action.id) };
     case 'ADD_OT_ENTRIES':
       return { ...state, otEntries: [...action.payload, ...state.otEntries] };
+    case 'UPDATE_OT_STATUS':
+      return {
+        ...state,
+        otEntries: state.otEntries.map(e =>
+          e.id === action.id
+            ? { ...e, status: action.status, assignedCutOffStart: action.assignedCutOffStart ?? e.assignedCutOffStart }
+            : e
+        ),
+      };
+    case 'UPDATE_ATTENDANCE_STATUS':
+      return {
+        ...state,
+        attendance: state.attendance.map(a =>
+          a.id === action.id ? { ...a, status: action.status } : a
+        ),
+      };
+    case 'MARK_OT_INCLUDED':
+      return {
+        ...state,
+        otEntries: state.otEntries.map(e =>
+          action.ids.includes(e.id) ? { ...e, includedInPayrollId: action.payrollId } : e
+        ),
+      };
+    case 'SET_LAST_WORKING_DAY':
+      return {
+        ...state,
+        employees: state.employees.map(e =>
+          e.id === action.payload.employeeId
+            ? { ...e, lastWorkingDay: action.payload.lastWorkingDay, separated: true }
+            : e
+        ),
+        finalPayRecords: [action.payload, ...state.finalPayRecords],
+      };
+    case 'RELEASE_FINAL_PAY':
+      return {
+        ...state,
+        finalPayRecords: state.finalPayRecords.map(r =>
+          r.id === action.id ? { ...r, status: 'Released', releasedOn: today() } : r
+        ),
+      };
     case 'TOAST':
       return { ...state, toasts: [...state.toasts, { id: uid(), ...action.payload }] };
     case 'REMOVE_TOAST':
@@ -484,6 +662,281 @@ function toast(dispatch, message, variant='success') {
 }
 
 // ─────────────────────────────────────────────────────────────
+// NOTIFICATION ENGINE
+// ─────────────────────────────────────────────────────────────
+function useNotifications(state) {
+  return useMemo(() => {
+    const todayStr  = today();
+    const todayDate = new Date(todayStr + 'T00:00:00');
+    const notifications = [];
+    const diffDays = (a, b) => Math.floor((a - b) / 86400000);
+
+    // 1. Overdue payroll runs (Processing but release date already passed)
+    state.payrollRuns.forEach(run => {
+      if (run.status === 'Processing' && run.releaseDate) {
+        const releaseDate = new Date(run.releaseDate + 'T00:00:00');
+        const diff = diffDays(todayDate, releaseDate);
+        if (diff > 0) {
+          notifications.push({
+            id: `overdue-${run.id}`, type: 'urgent',
+            title: 'Overdue Payroll Release',
+            message: `${run.period} was due on ${run.releaseDateLabel} — ${diff} day${diff !== 1 ? 's' : ''} overdue.`,
+            action: 'Process Now', page: 'payroll',
+          });
+        } else if (diff >= -3) {
+          const daysLeft = -diff;
+          notifications.push({
+            id: `release-soon-${run.id}`, type: 'warning',
+            title: 'Payroll Release Approaching',
+            message: `${run.period} is due for release on ${run.releaseDateLabel}${daysLeft === 0 ? ' — today!' : ` in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}`}.`,
+            action: 'View Payroll', page: 'payroll',
+          });
+        }
+      }
+    });
+
+    // 2. Upcoming cut-off end dates (within 3 days, not yet processed)
+    const processedStarts = new Set(state.payrollRuns.map(r => r.startDate));
+    [0, 1].forEach(offset => {
+      let m = todayDate.getMonth() + 1 + offset;
+      let y = todayDate.getFullYear();
+      if (m > 12) { m -= 12; y++; }
+      const sched = getCutOffSchedule(y, m);
+      [sched.cutOff1, sched.cutOff2].forEach(co => {
+        if (processedStarts.has(co.startDate)) return;
+        const endDate  = new Date(co.endDate + 'T00:00:00');
+        const daysLeft = diffDays(endDate, todayDate);
+        if (daysLeft >= 0 && daysLeft <= 3) {
+          notifications.push({
+            id: `cutoff-end-${co.startDate}`, type: daysLeft <= 1 ? 'urgent' : 'warning',
+            title: 'Cut-Off Deadline',
+            message: `${co.label} cut-off ends ${daysLeft === 0 ? 'today!' : `in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}`} — run payroll before it closes.`,
+            action: 'Process Payroll', page: 'payroll',
+          });
+        }
+      });
+    });
+
+    // 3. Government contribution remittance deadlines (within 7 days)
+    const cm = todayDate.getMonth() + 1;
+    const cy = todayDate.getFullYear();
+    const nm = cm === 12 ? 1 : cm + 1;
+    const ny = cm === 12 ? cy + 1 : cy;
+    const nm2 = nm === 12 ? 1 : nm + 1;
+    const ny2 = nm === 12 ? ny + 1 : ny;
+    const govItems = [
+      { name: 'SSS',        day: 30,                           month: nm,  year: ny  },
+      { name: 'PhilHealth', day: getLastDayOfMonth(ny, nm),    month: nm,  year: ny  },
+      { name: 'Pag-IBIG',   day: 15,                           month: nm2, year: ny2 },
+    ];
+    govItems.forEach(({ name, day, month, year }) => {
+      const dueDate  = new Date(`${year}-${pad(month)}-${pad(day)}T00:00:00`);
+      const daysLeft = diffDays(dueDate, todayDate);
+      if (daysLeft >= 0 && daysLeft <= 7) {
+        notifications.push({
+          id: `gov-${name}-${month}-${year}`, type: daysLeft <= 2 ? 'warning' : 'info',
+          title: `${name} Remittance Due`,
+          message: `${name} contributions for ${MONTH_NAMES[cm - 1]} due on ${MONTH_NAMES[month - 1]} ${day}${daysLeft === 0 ? ' — today!' : ` (${daysLeft} day${daysLeft !== 1 ? 's' : ''} left)`}.`,
+          action: 'View Reports', page: 'reports',
+        });
+      }
+    });
+
+    // 4. Today's attendance issues
+    const todayAtt = state.attendance.filter(a => a.date === todayStr);
+    const absents  = todayAtt.filter(a => a.type === 'Absent').length;
+    const lates    = todayAtt.filter(a => a.type === 'Late').length;
+    if (absents > 0) notifications.push({
+      id: 'att-absent-today', type: 'warning',
+      title: 'Absent Employees Today',
+      message: `${absents} employee${absents !== 1 ? 's are' : ' is'} marked absent today. Review attendance records.`,
+      action: 'View Attendance', page: 'attendance',
+    });
+    if (lates > 0) notifications.push({
+      id: 'att-late-today', type: 'info',
+      title: 'Late Arrivals Today',
+      message: `${lates} employee${lates !== 1 ? 's' : ''} logged late today.`,
+      action: 'View Attendance', page: 'attendance',
+    });
+
+    // 5. Probationary employees nearing regularization (within 30 days)
+    state.employees.forEach(emp => {
+      if (emp.type === 'Probationary' && emp.hireDate) {
+        const reg = new Date(emp.hireDate + 'T00:00:00');
+        reg.setMonth(reg.getMonth() + 6);
+        const daysLeft = diffDays(reg, todayDate);
+        if (daysLeft >= 0 && daysLeft <= 30) {
+          notifications.push({
+            id: `prob-${emp.id}`, type: daysLeft <= 7 ? 'warning' : 'info',
+            title: 'Regularization Due Soon',
+            message: `${emp.name.split(' ').slice(0, 2).join(' ')} completes probation on ${fmtDate(reg.toISOString().split('T')[0])}${daysLeft === 0 ? ' — today!' : ` (${daysLeft} day${daysLeft !== 1 ? 's' : ''})`}.`,
+            action: 'View Employee', page: 'employees',
+          });
+        }
+      }
+    });
+
+    // 6. Employees with no salary set
+    const noSal = state.employees.filter(e => !e.salary || e.salary === 0);
+    if (noSal.length > 0) notifications.push({
+      id: 'no-salary', type: 'warning',
+      title: 'Incomplete Salary Records',
+      message: `${noSal.length} employee${noSal.length !== 1 ? 's have' : ' has'} no salary set: ${noSal.slice(0, 3).map(e => e.name.split(' ')[0]).join(', ')}${noSal.length > 3 ? '…' : ''}.`,
+      action: 'Fix Now', page: 'employees',
+    });
+
+    // 7. Pending OT / Attendance entries — split by overdue vs current cut-off
+    {
+      const nowDay = todayDate.getDate();
+      const nowM   = todayDate.getMonth() + 1;
+      const nowY   = todayDate.getFullYear();
+      const nowSched  = getCutOffSchedule(nowY, nowM);
+      const currCOEnd = nowDay <= 15 ? nowSched.cutOff1.endDate : nowSched.cutOff2.endDate;
+
+      // OT: pending and not yet included
+      const pendingOT = state.otEntries.filter(e => e.status === 'Pending' && !e.includedInPayrollId);
+      const overdueOT = pendingOT.filter(e => e.date < currCOEnd);
+      const freshOT   = pendingOT.filter(e => e.date >= currCOEnd);
+
+      if (overdueOT.length > 0) notifications.push({
+        id: 'pending-ot-overdue', type: 'warning',
+        title: 'Pending OT Past Cut-Off',
+        message: `${overdueOT.length} OT entr${overdueOT.length !== 1 ? 'ies' : 'y'} still Pending from a past cut-off. Approve or carry forward to current period.`,
+        action: 'Review OT', page: 'ot',
+      });
+      if (freshOT.length > 0) notifications.push({
+        id: 'pending-ot-current', type: 'info',
+        title: 'OT Entries Awaiting Approval',
+        message: `${freshOT.length} OT entr${freshOT.length !== 1 ? 'ies' : 'y'} awaiting HR approval for the current cut-off.`,
+        action: 'Approve OT', page: 'ot',
+      });
+
+      // Attendance: pending records
+      const pendingAtt = state.attendance.filter(a => a.status === 'Pending');
+      const overdueAtt = pendingAtt.filter(a => a.date < currCOEnd);
+      const freshAtt   = pendingAtt.filter(a => a.date >= currCOEnd);
+
+      if (overdueAtt.length > 0) notifications.push({
+        id: 'pending-att-overdue', type: 'warning',
+        title: 'Pending Leave Records Past Cut-Off',
+        message: `${overdueAtt.length} leave/absence record${overdueAtt.length !== 1 ? 's' : ''} still Pending from a past cut-off. Approve before next payroll run.`,
+        action: 'Review Attendance', page: 'attendance',
+      });
+      if (freshAtt.length > 0) notifications.push({
+        id: 'pending-att-current', type: 'info',
+        title: 'Leave Records Awaiting Approval',
+        message: `${freshAtt.length} leave/absence record${freshAtt.length !== 1 ? 's' : ''} awaiting HR approval for the current cut-off.`,
+        action: 'Approve Leave', page: 'attendance',
+      });
+    }
+
+    // 8. Final pay hold status
+    state.finalPayRecords.forEach(rec => {
+      if (rec.status === 'Released') return;
+      const relDate  = new Date(rec.releaseDate + 'T00:00:00');
+      const daysLeft = diffDays(relDate, todayDate);
+      if (daysLeft <= 0) {
+        notifications.push({
+          id: `fp-ready-${rec.id}`, type: 'urgent',
+          title: 'Final Pay Ready for Release',
+          message: `${rec.employeeName}'s final pay of ${fmt(rec.netFinalPay)} has cleared the 30-day hold. Ready to release.`,
+          action: 'Release Now', page: 'finalpay',
+        });
+      } else if (daysLeft <= 7) {
+        notifications.push({
+          id: `fp-soon-${rec.id}`, type: 'info',
+          title: 'Final Pay Hold Expiring',
+          message: `${rec.employeeName}'s 30-day hold expires in ${daysLeft} day${daysLeft !== 1 ? 's' : ''} (${rec.releaseDateLabel}).`,
+          action: 'View Final Pay', page: 'finalpay',
+        });
+      }
+    });
+
+    // Sort: urgent → warning → info
+    const order = { urgent: 0, warning: 1, info: 2 };
+    return notifications.sort((a, b) => order[a.type] - order[b.type]);
+  }, [state]);
+}
+
+// ─────────────────────────────────────────────────────────────
+// NOTIFICATION PANEL
+// ─────────────────────────────────────────────────────────────
+function NotificationPanel({ notifications, onNavigate, onClose }) {
+  const urgentCount  = notifications.filter(n => n.type === 'urgent').length;
+  const warningCount = notifications.filter(n => n.type === 'warning').length;
+  const typeConfig = {
+    urgent:  { bg:'bg-red-50',    border:'border-red-200',    dot:'bg-red-500',    badge:'bg-red-100 text-red-700',       label:'Urgent'           },
+    warning: { bg:'bg-orange-50', border:'border-orange-200', dot:'bg-orange-400', badge:'bg-orange-100 text-orange-700', label:'Attention Needed' },
+    info:    { bg:'bg-blue-50',   border:'border-blue-200',   dot:'bg-blue-400',   badge:'bg-blue-100 text-blue-700',     label:'Info'             },
+  };
+  return (
+    <div className="absolute right-0 top-full mt-2 w-96 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 max-h-[80vh] flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+        <div className="flex items-center gap-2">
+          <Bell size={16} className="text-gray-700"/>
+          <span className="font-semibold text-gray-800">Notifications</span>
+          {notifications.length > 0 && (
+            <span className="bg-orange-100 text-orange-700 text-xs font-semibold px-2 py-0.5 rounded-full">
+              {notifications.length}
+            </span>
+          )}
+        </div>
+        <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors">
+          <X size={16}/>
+        </button>
+      </div>
+
+      {/* List */}
+      <div className="overflow-y-auto flex-1 py-2">
+        {notifications.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 gap-2">
+            <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center">
+              <Check size={22} className="text-emerald-500"/>
+            </div>
+            <p className="font-medium text-gray-600">All caught up!</p>
+            <p className="text-sm text-gray-400">No pending alerts or deadlines.</p>
+          </div>
+        ) : (
+          notifications.map(notif => {
+            const cfg = typeConfig[notif.type];
+            return (
+              <div key={notif.id} className={`mx-3 mb-2 p-3 rounded-xl border ${cfg.bg} ${cfg.border}`}>
+                <div className="flex items-start gap-2.5">
+                  <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${cfg.dot}`}/>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                      <span className="text-xs font-semibold text-gray-800">{notif.title}</span>
+                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${cfg.badge}`}>{cfg.label}</span>
+                    </div>
+                    <p className="text-xs text-gray-600 leading-relaxed">{notif.message}</p>
+                    <button
+                      onClick={() => { onNavigate(notif.page); onClose(); }}
+                      className="mt-1.5 text-xs font-semibold text-orange-600 hover:text-orange-800 flex items-center gap-0.5 transition-colors"
+                    >
+                      {notif.action}<ChevronRight size={11}/>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Footer summary */}
+      <div className="border-t border-gray-100 px-4 py-2.5 text-center text-xs text-gray-400">
+        {urgentCount > 0 && <span className="text-red-500 font-semibold">{urgentCount} urgent</span>}
+        {urgentCount > 0 && warningCount > 0 && <span className="mx-1">·</span>}
+        {warningCount > 0 && <span className="text-orange-500 font-semibold">{warningCount} need attention</span>}
+        {urgentCount === 0 && warningCount === 0 && notifications.length > 0 && <span>No critical alerts</span>}
+        {notifications.length === 0 && <span>System is up to date</span>}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // MODAL
 // ─────────────────────────────────────────────────────────────
 function Modal({ isOpen, onClose, title, children, wide, extraWide }) {
@@ -515,11 +968,28 @@ function Badge({ status }) {
     Regular:              'bg-emerald-100 text-emerald-700',
     Probationary:         'bg-amber-100 text-amber-700',
     Absent:               'bg-red-100 text-red-700',
+    absent:               'bg-red-100 text-red-700',
     Late:                 'bg-yellow-100 text-yellow-700',
+    late:                 'bg-yellow-100 text-yellow-700',
+    sick:                 'bg-blue-100 text-blue-700',
+    vacation:             'bg-teal-100 text-teal-700',
+    sil:                  'bg-purple-100 text-purple-700',
+    personal:             'bg-orange-100 text-orange-700',
+    maternity:            'bg-pink-100 text-pink-700',
+    paternity:            'bg-sky-100 text-sky-700',
+    emergency:            'bg-amber-100 text-amber-700',
+    bereavement:          'bg-gray-200 text-gray-700',
+    other:                'bg-gray-100 text-gray-500',
+    Approved:             'bg-emerald-100 text-emerald-700',
+    Rejected:             'bg-red-100 text-red-600',
     'Regular OT':         'bg-blue-100 text-blue-700',
     'Rest Day OT':        'bg-orange-100 text-orange-700',
     'Regular Holiday OT': 'bg-red-100 text-red-700',
     'Special Holiday OT': 'bg-teal-100 text-teal-700',
+    Separated:            'bg-gray-200 text-gray-600',
+    Held:                 'bg-yellow-100 text-yellow-700',
+    Released:             'bg-emerald-100 text-emerald-700',
+    'Ready for Release':  'bg-blue-100 text-blue-700',
   };
   return (
     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${map[status]||'bg-gray-100 text-gray-700'}`}>
@@ -580,17 +1050,41 @@ function Select({ label, children, ...props }) {
 // ─────────────────────────────────────────────────────────────
 function EmployeeForm({ initial, onSave, onClose }) {
   const nextId = 'E' + String(Math.floor(Math.random()*900)+100).padStart(3,'0');
+
+  // Derive initial split name fields from existing full name if not already set
+  const initFirstName  = initial?.firstName  ?? '';
+  const initMiddleName = initial?.middleName ?? '';
+  const initLastName   = initial?.lastName   ?? '';
+
   const [form, setForm] = useState(initial || {
-    id: nextId, name:'', dept:'Events', position:'',
-    type:'Regular', salary:'', allowance:'', hireDate: today(), taxEx: 0, bank:'', isHourly:false,
+    id: nextId, name:'', firstName:'', middleName:'', lastName:'',
+    dept:'Events', position:'', type:'Regular',
+    salary:'', allowance:'', hireDate: today(), taxEx: 0, bank:'', isHourly:false,
   });
-  const [errs, setErrs] = useState({});
+  const [errs,        setErrs]        = useState({});
+  const [nameMode,    setNameMode]    = useState('split'); // 'split' | 'full'
 
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
+  // Auto-generate Full Name from split fields
+  const buildFullName = (first, middle, last) =>
+    [first, middle, last].filter(Boolean).join(' ').trim();
+
+  const handleSplitChange = (key, val) => {
+    const updated = { ...form, [key]: val };
+    // Auto-fill Full Name from split fields
+    const generated = buildFullName(
+      key === 'firstName'  ? val : form.firstName,
+      key === 'middleName' ? val : form.middleName,
+      key === 'lastName'   ? val : form.lastName,
+    );
+    updated.name = generated;
+    setForm(updated);
+  };
+
   const validate = () => {
     const e = {};
-    if (!form.name.trim()) e.name = 'Name is required';
+    if (!form.name.trim()) e.name = 'Full name is required';
     if (form.salary === '' || isNaN(form.salary) || +form.salary < 0) e.salary = 'Valid salary required';
     if (!form.bank.match(/^\d{4}$/)) e.bank = 'Enter last 4 digits of bank account';
     setErrs(e);
@@ -602,27 +1096,696 @@ function EmployeeForm({ initial, onSave, onClose }) {
     onSave({ ...form, salary: +form.salary, allowance: +form.allowance || 0, taxEx: +form.taxEx });
   };
 
+  const fieldCls = 'w-full px-3 py-2 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-400 bg-gray-50';
+
   return (
-    <div className="grid grid-cols-2 gap-4">
-      <div className="col-span-2"><Input label="Full Name" value={form.name} onChange={e=>f('name',e.target.value)} error={errs.name} placeholder="e.g. Juan dela Cruz"/></div>
-      <Select label="Department" value={form.dept} onChange={e=>f('dept',e.target.value)}>
-        {DEPARTMENTS.map(d=><option key={d}>{d}</option>)}
-      </Select>
-      <Input label="Position / Job Title" value={form.position} onChange={e=>f('position',e.target.value)} placeholder="e.g. Account Manager"/>
-      <Select label="Employment Status" value={form.type} onChange={e=>f('type',e.target.value)}>
-        {EMP_TYPES.map(t=><option key={t}>{t}</option>)}
-      </Select>
-      <Input label="Joining Date" type="date" value={form.hireDate} onChange={e=>f('hireDate',e.target.value)}/>
-      <Input label="Current Monthly Salary (PHP)" type="number" value={form.salary} onChange={e=>f('salary',e.target.value)} error={errs.salary} placeholder="e.g. 25000"/>
-      <Input label="Load Allowance (PHP / month)" type="number" value={form.allowance} onChange={e=>f('allowance',e.target.value)} placeholder="e.g. 200 — leave blank if none"/>
-      <Select label="Tax Exemptions (dependents)" value={form.taxEx} onChange={e=>f('taxEx',e.target.value)}>
-        {[0,1,2,3,4].map(n=><option key={n} value={n}>{n} dependent{n!==1?'s':''}</option>)}
-      </Select>
-      <Input label="Bank Account (last 4 digits)" value={form.bank} onChange={e=>f('bank',e.target.value.replace(/\D/g,'').slice(0,4))} error={errs.bank} placeholder="XXXX"/>
-      <div className="col-span-2 flex gap-3 justify-end pt-2">
+    <div className="space-y-5">
+
+      {/* ── Name Section ── */}
+      <div className="rounded-xl border border-orange-100 bg-orange-50/40 p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold text-orange-700 uppercase tracking-wide">Employee Name</p>
+          <button type="button" onClick={() => setNameMode(m => m === 'split' ? 'full' : 'split')}
+            className="text-xs text-orange-600 hover:text-orange-800 underline underline-offset-2">
+            {nameMode === 'split' ? 'Switch to Full Name only' : 'Switch to First / Middle / Last'}
+          </button>
+        </div>
+
+        {nameMode === 'split' ? (
+          <>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5">First Name <span className="text-red-400">*</span></label>
+                <input value={form.firstName} onChange={e => handleSplitChange('firstName', e.target.value)}
+                  placeholder="e.g. Juan" className={fieldCls}/>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Middle Name <span className="text-gray-400 font-normal">(optional)</span></label>
+                <input value={form.middleName} onChange={e => handleSplitChange('middleName', e.target.value)}
+                  placeholder="e.g. Santos" className={fieldCls}/>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5">Last Name <span className="text-red-400">*</span></label>
+                <input value={form.lastName} onChange={e => handleSplitChange('lastName', e.target.value)}
+                  placeholder="e.g. dela Cruz" className={fieldCls}/>
+              </div>
+            </div>
+            {/* Full name preview / override */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5">
+                Full Name <span className="text-gray-400 font-normal ml-1">— auto-generated · editable</span>
+              </label>
+              <input value={form.name} onChange={e => f('name', e.target.value)}
+                placeholder="Auto-filled from above"
+                className={`${fieldCls} ${form.name ? 'border-orange-300 bg-white font-medium' : ''}`}/>
+              {errs.name && <p className="text-xs text-red-500 mt-1">{errs.name}</p>}
+            </div>
+          </>
+        ) : (
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">Full Name <span className="text-red-400">*</span></label>
+            <input value={form.name} onChange={e => f('name', e.target.value)}
+              placeholder="e.g. Juan Santos dela Cruz" className={fieldCls}/>
+            {errs.name && <p className="text-xs text-red-500 mt-1">{errs.name}</p>}
+          </div>
+        )}
+      </div>
+
+      {/* ── Rest of the form ── */}
+      <div className="grid grid-cols-2 gap-4">
+        <Select label="Department" value={form.dept} onChange={e=>f('dept',e.target.value)}>
+          {DEPARTMENTS.map(d=><option key={d}>{d}</option>)}
+        </Select>
+        <Input label="Position / Job Title" value={form.position} onChange={e=>f('position',e.target.value)} placeholder="e.g. Account Manager"/>
+        <Select label="Employment Status" value={form.type} onChange={e=>f('type',e.target.value)}>
+          {EMP_TYPES.map(t=><option key={t}>{t}</option>)}
+        </Select>
+        <Input label="Joining Date" type="date" value={form.hireDate} onChange={e=>f('hireDate',e.target.value)}/>
+        <Input label="Current Monthly Salary (PHP)" type="number" value={form.salary} onChange={e=>f('salary',e.target.value)} error={errs.salary} placeholder="e.g. 25000"/>
+        <Input label="Load Allowance (PHP / month)" type="number" value={form.allowance} onChange={e=>f('allowance',e.target.value)} placeholder="e.g. 200 — leave blank if none"/>
+        <Select label="Tax Exemptions (dependents)" value={form.taxEx} onChange={e=>f('taxEx',e.target.value)}>
+          {[0,1,2,3,4].map(n=><option key={n} value={n}>{n} dependent{n!==1?'s':''}</option>)}
+        </Select>
+        <Input label="Bank Account (last 4 digits)" value={form.bank} onChange={e=>f('bank',e.target.value.replace(/\D/g,'').slice(0,4))} error={errs.bank} placeholder="XXXX"/>
+      </div>
+
+      <div className="flex gap-3 justify-end pt-1">
         <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-gray-200 hover:bg-gray-50">Cancel</button>
         <button onClick={submit} className="px-5 py-2 text-sm rounded-lg bg-orange-700 text-white hover:bg-orange-800 font-medium">
           {initial ? 'Save Changes' : 'Add Employee'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// LAST WORKING DAY MODAL
+// ─────────────────────────────────────────────────────────────
+function LWDModal({ employee, onSave, onClose }) {
+  const { state } = useApp();
+  const [lwd, setLwd]     = useState(today());
+  const [preview, setPreview] = useState(null);
+
+  useEffect(() => {
+    if (lwd && employee) {
+      try { setPreview(calcFinalPay(employee, lwd, state.otEntries)); }
+      catch { setPreview(null); }
+    }
+  }, [lwd, employee, state.otEntries]);
+
+  const row = (label, value, highlight) => (
+    <div className={`flex justify-between items-center py-1.5 px-3 rounded-lg ${highlight ? 'bg-orange-50' : 'bg-gray-50'}`}>
+      <span className="text-sm text-gray-500">{label}</span>
+      <span className={`text-sm font-semibold ${highlight ? 'text-orange-700' : 'text-gray-800'}`}>{value}</span>
+    </div>
+  );
+
+  return (
+    <div className="space-y-5">
+      {/* Info banner */}
+      <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-amber-800">
+        <Lock size={15} className="mt-0.5 flex-shrink-0"/>
+        <span>Final pay will be <strong>held for 30 days</strong> from the last working day per DOLE regulations before it can be released.</span>
+      </div>
+
+      {/* LWD input */}
+      <div>
+        <label className="block text-xs font-semibold text-gray-600 mb-1.5">Last Working Day</label>
+        <input type="date" value={lwd} onChange={e => setLwd(e.target.value)}
+          className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-400"/>
+      </div>
+
+      {/* Final pay preview */}
+      {preview && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Final Pay Breakdown</p>
+
+          <div className="space-y-1.5">
+            <p className="text-[11px] text-gray-400 font-medium px-1">EARNINGS</p>
+            {row(`Prorated Salary (${preview.daysWorkedInPeriod}d in ${preview.cutOffPeriod})`, fmt(preview.proratedSalary))}
+            {preview.allowance > 0 && row('Load Allowance', fmt(preview.allowance))}
+            {preview.otPay > 0    && row('Overtime Pay',    fmt(preview.otPay))}
+            {row(`Prorated 13th Month (${preview.daysWorkedThisYear} days this year)`, fmt(preview.thirteenthMonth))}
+
+            <p className="text-[11px] text-gray-400 font-medium px-1 pt-1">DEDUCTIONS</p>
+            {preview.cutOffNum === 2 ? (
+              <>
+                {row('SSS',        fmt(preview.sss))}
+                {row('PhilHealth', fmt(preview.philHealth))}
+                {row('Pag-IBIG',   fmt(preview.pagIbig))}
+              </>
+            ) : (
+              <div className="px-3 py-1.5 text-xs text-gray-400 italic bg-gray-50 rounded-lg">No gov't deductions (Cut-Off 1)</div>
+            )}
+
+            <div className="border-t border-gray-200 pt-1.5 space-y-1.5">
+              {row('Gross Final Pay', fmt(preview.grossFinalPay))}
+              {preview.totalDeductions > 0 && row('Total Deductions', `− ${fmt(preview.totalDeductions)}`)}
+              {row('Net Final Pay', fmt(preview.netFinalPay), true)}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-blue-50 border border-blue-100 text-sm text-blue-800">
+            <Lock size={13} className="flex-shrink-0"/>
+            <span>Hold until: <strong>{preview.releaseDateLabel}</strong></span>
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-3 justify-end pt-1">
+        <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-gray-200 hover:bg-gray-50">Cancel</button>
+        <button
+          onClick={() => preview && onSave(lwd, preview)}
+          disabled={!preview}
+          className="flex items-center gap-2 px-5 py-2 text-sm rounded-lg bg-orange-700 text-white hover:bg-orange-800 font-medium disabled:opacity-50"
+        >
+          <CalendarX size={15}/> Confirm Last Working Day
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// FINAL PAY PAGE
+// ─────────────────────────────────────────────────────────────
+function FinalPayPage() {
+  const { state, dispatch } = useApp();
+  const [viewDetail, setViewDetail] = useState(null);
+  const empMap = useMemo(() => Object.fromEntries(state.employees.map(e => [e.id, e])), [state.employees]);
+  const todayStr  = today();
+
+  const records = state.finalPayRecords.map(rec => {
+    const releaseDate = new Date(rec.releaseDate + 'T00:00:00');
+    const todayDate   = new Date(todayStr + 'T00:00:00');
+    const daysLeft    = Math.floor((releaseDate - todayDate) / 86400000);
+    const autoStatus  = rec.status === 'Released' ? 'Released'
+                      : daysLeft <= 0              ? 'Ready for Release'
+                      : 'Held';
+    return { ...rec, autoStatus, daysLeft };
+  });
+
+  const held    = records.filter(r => r.autoStatus === 'Held').length;
+  const ready   = records.filter(r => r.autoStatus === 'Ready for Release').length;
+  const released = records.filter(r => r.autoStatus === 'Released').length;
+
+  const releasePay = (rec) => {
+    dispatch({ type: 'RELEASE_FINAL_PAY', id: rec.id });
+    toast(dispatch, `Final pay released for ${rec.employeeName}`);
+    setViewDetail(null);
+  };
+
+  const DetailRow = ({ label, value, highlight, deduct }) => (
+    <div className={`flex justify-between items-center py-1.5 px-3 rounded-lg ${highlight ? 'bg-orange-50' : 'bg-gray-50'}`}>
+      <span className="text-sm text-gray-500">{label}</span>
+      <span className={`text-sm font-semibold ${highlight ? 'text-orange-700' : deduct ? 'text-red-600' : 'text-gray-800'}`}>{value}</span>
+    </div>
+  );
+
+  return (
+    <div className="p-6 space-y-5">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-bold text-gray-800">Final Pay</h1>
+        <p className="text-sm text-gray-500">Separation clearance &amp; final pay management</p>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="bg-yellow-50 border border-yellow-200 rounded-2xl px-4 py-3 flex items-center gap-3">
+          <Lock size={20} className="text-yellow-600 flex-shrink-0"/>
+          <div>
+            <p className="text-2xl font-bold text-yellow-700">{held}</p>
+            <p className="text-xs text-yellow-600 font-medium">On Hold</p>
+          </div>
+        </div>
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl px-4 py-3 flex items-center gap-3">
+          <Unlock size={20} className="text-blue-600 flex-shrink-0"/>
+          <div>
+            <p className="text-2xl font-bold text-blue-700">{ready}</p>
+            <p className="text-xs text-blue-600 font-medium">Ready for Release</p>
+          </div>
+        </div>
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3 flex items-center gap-3">
+          <Check size={20} className="text-emerald-600 flex-shrink-0"/>
+          <div>
+            <p className="text-2xl font-bold text-emerald-700">{released}</p>
+            <p className="text-xs text-emerald-600 font-medium">Released</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Records table */}
+      {records.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col items-center justify-center py-16 text-gray-400">
+          <UserMinus size={36} className="mb-3 text-gray-300"/>
+          <p className="font-medium text-gray-500">No separation records yet</p>
+          <p className="text-sm mt-1">Record an employee's last working day from the Employees page.</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                  {['Employee','Dept','Last Working Day','Release Date','Hold Remaining','Gross Final Pay','Net Final Pay','Status',''].map(h => (
+                    <th key={h} className="px-4 py-3 text-left font-medium whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {records.map(rec => {
+                  const emp = empMap[rec.employeeId];
+                  return (
+                    <tr key={rec.id} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="px-4 py-3 font-medium text-gray-800">{rec.employeeName}</td>
+                      <td className="px-4 py-3 text-gray-500">{emp?.dept || '—'}</td>
+                      <td className="px-4 py-3 text-gray-600">{fmtDate(rec.lastWorkingDay)}</td>
+                      <td className="px-4 py-3 text-gray-600">{rec.releaseDateLabel}</td>
+                      <td className="px-4 py-3">
+                        {rec.autoStatus === 'Released'
+                          ? <span className="text-emerald-600 text-xs font-medium">Released {fmtDate(rec.releasedOn)}</span>
+                          : rec.daysLeft <= 0
+                            ? <span className="text-blue-600 font-semibold text-xs">Ready ✓</span>
+                            : <span className="text-yellow-700 font-medium text-xs">{rec.daysLeft}d remaining</span>
+                        }
+                      </td>
+                      <td className="px-4 py-3 text-gray-700">{fmt(rec.grossFinalPay)}</td>
+                      <td className="px-4 py-3 font-bold text-orange-700">{fmt(rec.netFinalPay)}</td>
+                      <td className="px-4 py-3"><Badge status={rec.autoStatus}/></td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-1">
+                          <button onClick={() => setViewDetail(rec)}
+                            className="p-1.5 rounded-lg hover:bg-orange-50 text-orange-700" title="View breakdown">
+                            <Eye size={14}/>
+                          </button>
+                          {rec.autoStatus === 'Ready for Release' && (
+                            <button onClick={() => releasePay(rec)}
+                              className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-600" title="Mark as Released">
+                              <Unlock size={14}/>
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Detail modal */}
+      <Modal isOpen={!!viewDetail} onClose={() => setViewDetail(null)} title="Final Pay Breakdown" wide>
+        {viewDetail && (() => {
+          const emp = empMap[viewDetail.employeeId];
+          return (
+            <div className="space-y-4">
+              {/* Employee header */}
+              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+                <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center font-bold text-orange-700 text-sm">
+                  {viewDetail.employeeName.charAt(0)}
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-800">{viewDetail.employeeName}</p>
+                  <p className="text-xs text-gray-500">{emp?.position || '—'} · {emp?.dept || '—'}</p>
+                </div>
+                <div className="ml-auto text-right">
+                  <p className="text-xs text-gray-400">Last Working Day</p>
+                  <p className="font-semibold text-gray-700">{fmtDate(viewDetail.lastWorkingDay)}</p>
+                </div>
+              </div>
+
+              {/* Breakdown */}
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide px-1">Earnings</p>
+                <DetailRow label={`Prorated Salary (${viewDetail.daysWorkedInPeriod}d in ${viewDetail.cutOffPeriod})`} value={fmt(viewDetail.proratedSalary)}/>
+                {viewDetail.allowance > 0 && <DetailRow label="Load Allowance" value={fmt(viewDetail.allowance)}/>}
+                {viewDetail.otPay > 0    && <DetailRow label="Overtime Pay"    value={fmt(viewDetail.otPay)}/>}
+                <DetailRow label={`Prorated 13th Month (${viewDetail.daysWorkedThisYear} working days this year)`} value={fmt(viewDetail.thirteenthMonth)}/>
+
+                {viewDetail.totalDeductions > 0 && (
+                  <>
+                    <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide px-1 pt-1">Deductions</p>
+                    {viewDetail.sss > 0        && <DetailRow label="SSS"        value={`− ${fmt(viewDetail.sss)}`}        deduct/>}
+                    {viewDetail.philHealth > 0 && <DetailRow label="PhilHealth" value={`− ${fmt(viewDetail.philHealth)}`} deduct/>}
+                    {viewDetail.pagIbig > 0    && <DetailRow label="Pag-IBIG"   value={`− ${fmt(viewDetail.pagIbig)}`}    deduct/>}
+                  </>
+                )}
+
+                <div className="border-t border-gray-200 pt-1.5 space-y-1.5">
+                  <DetailRow label="Gross Final Pay"     value={fmt(viewDetail.grossFinalPay)}/>
+                  {viewDetail.totalDeductions > 0 && <DetailRow label="Total Deductions" value={`− ${fmt(viewDetail.totalDeductions)}`} deduct/>}
+                  <DetailRow label="Net Final Pay"       value={fmt(viewDetail.netFinalPay)} highlight/>
+                </div>
+              </div>
+
+              {/* Hold status */}
+              <div className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm border ${
+                viewDetail.autoStatus === 'Released'        ? 'bg-emerald-50 border-emerald-200 text-emerald-800' :
+                viewDetail.autoStatus === 'Ready for Release' ? 'bg-blue-50 border-blue-200 text-blue-800' :
+                'bg-yellow-50 border-yellow-200 text-yellow-800'}`}>
+                {viewDetail.autoStatus === 'Released'          ? <Check size={14}/> :
+                 viewDetail.autoStatus === 'Ready for Release' ? <Unlock size={14}/> :
+                 <Lock size={14}/>}
+                {viewDetail.autoStatus === 'Released'
+                  ? `Released on ${fmtDate(viewDetail.releasedOn)}`
+                  : viewDetail.autoStatus === 'Ready for Release'
+                    ? `30-day hold cleared — ready for release`
+                    : `Held until ${viewDetail.releaseDateLabel} (${viewDetail.daysLeft} days remaining)`}
+              </div>
+
+              {viewDetail.autoStatus === 'Ready for Release' && (
+                <div className="flex justify-end">
+                  <button onClick={() => releasePay(viewDetail)}
+                    className="flex items-center gap-2 px-5 py-2 text-sm rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 font-medium">
+                    <Unlock size={14}/> Mark as Released
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+      </Modal>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// GOVERNMENT DEDUCTIONS & LOANS MODAL
+// ─────────────────────────────────────────────────────────────
+function GovDeductionsModal({ employee, onSave, onClose }) {
+  const computed    = calcGovContribs(employee.salary || 0);
+
+  const [activeTab, setActiveTab] = useState('gov');
+
+  // Gov IDs & contributions
+  const [sssNo,     setSssNo]     = useState(employee.sssNo     || '');
+  const [hdmfNo,    setHdmfNo]    = useState(employee.hdmfNo    || '');
+  const [phNo,      setPhNo]      = useState(employee.philHealthNo || '');
+  const [sssAmt,    setSssAmt]    = useState(employee.sssContribOverride   ?? '');
+  const [hdmfAmt,   setHdmfAmt]  = useState(employee.hdmfContribOverride  ?? '');
+  const [phAmt,     setPhAmt]     = useState(employee.philHealthContribOverride ?? '');
+
+  // Gov loans
+  const [sssLoanBal,     setSssLoanBal]     = useState(employee.sssLoanBalance    || '');
+  const [sssLoanCutoff,  setSssLoanCutoff]  = useState(employee.sssLoanPerCutOff  || '');
+  const [hdmfLoanBal,    setHdmfLoanBal]   = useState(employee.hdmfLoanBalance   || '');
+  const [hdmfLoanCutoff, setHdmfLoanCutoff]= useState(employee.hdmfLoanPerCutOff || '');
+  const [otherLoans,     setOtherLoans]     = useState(employee.otherLoans || []);
+
+  // Company loan
+  const [companyLoan, setCompanyLoan] = useState(employee.companyLoan || { totalAmount:'', balance:'', perCutOff:'', startDate:'' });
+
+  const cl = (k, v) => setCompanyLoan(p => ({ ...p, [k]: v }));
+
+  const addOtherLoan = () =>
+    setOtherLoans(p => [...p, { id: uid(), name:'', totalAmount:'', balance:'', perCutOff:'' }]);
+  const updateOtherLoan = (id, k, v) =>
+    setOtherLoans(p => p.map(l => l.id === id ? { ...l, [k]: v } : l));
+  const removeOtherLoan = (id) =>
+    setOtherLoans(p => p.filter(l => l.id !== id));
+
+  const save = () => {
+    onSave({
+      ...employee,
+      sssNo, hdmfNo, philHealthNo: phNo,
+      sssContribOverride:        sssAmt  === '' ? null : +sssAmt,
+      hdmfContribOverride:       hdmfAmt === '' ? null : +hdmfAmt,
+      philHealthContribOverride: phAmt   === '' ? null : +phAmt,
+      sssLoanBalance:    sssLoanBal    || null,
+      sssLoanPerCutOff:  sssLoanCutoff || null,
+      hdmfLoanBalance:   hdmfLoanBal   || null,
+      hdmfLoanPerCutOff: hdmfLoanCutoff || null,
+      otherLoans,
+      companyLoan: {
+        totalAmount: companyLoan.totalAmount || null,
+        balance:     companyLoan.balance     || null,
+        perCutOff:   companyLoan.perCutOff   || null,
+        startDate:   companyLoan.startDate   || null,
+      },
+    });
+  };
+
+  const fieldCls   = 'w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-orange-400';
+  const labelCls   = 'block text-xs font-semibold text-gray-600 mb-1.5';
+  const sectionHdr = (icon, title, color) => (
+    <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${color} mb-3`}>
+      {icon}<span className="text-sm font-semibold">{title}</span>
+    </div>
+  );
+
+  const TABS = [
+    { id:'gov',     label:"Gov't IDs & Contributions", icon:<ShieldCheck size={14}/> },
+    { id:'loans',   label:'Government Loans',           icon:<Banknote size={14}/> },
+    { id:'company', label:'Company Salary Loan',        icon:<Building size={14}/> },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* Employee header */}
+      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100">
+        <div className="w-9 h-9 rounded-full bg-orange-100 flex items-center justify-center font-bold text-orange-700 text-sm flex-shrink-0">
+          {employee.name.charAt(0)}
+        </div>
+        <div>
+          <p className="font-semibold text-gray-800 text-sm">{employee.name}</p>
+          <p className="text-xs text-gray-400">{employee.position} · {employee.dept}</p>
+        </div>
+        <div className="ml-auto text-right">
+          <p className="text-xs text-gray-400">Monthly Salary</p>
+          <p className="font-bold text-gray-700">{fmt(employee.salary)}</p>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-gray-200">
+        {TABS.map(tab => (
+          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
+              activeTab === tab.id ? 'border-orange-600 text-orange-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+            {tab.icon}{tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── TAB: GOV IDs & CONTRIBUTIONS ── */}
+      {activeTab === 'gov' && (
+        <div className="space-y-5">
+          {/* IDs */}
+          {sectionHdr(<CreditCardIcon size={14} className="text-blue-600"/>, 'Government ID Numbers', 'bg-blue-50 text-blue-800')}
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className={labelCls}>SSS Number</label>
+              <input value={sssNo} onChange={e => setSssNo(e.target.value)} placeholder="XX-XXXXXXX-X" className={fieldCls}/>
+            </div>
+            <div>
+              <label className={labelCls}>HDMF (Pag-IBIG) Number</label>
+              <input value={hdmfNo} onChange={e => setHdmfNo(e.target.value)} placeholder="XXXX-XXXX-XXXX" className={fieldCls}/>
+            </div>
+            <div>
+              <label className={labelCls}>PhilHealth Number</label>
+              <input value={phNo} onChange={e => setPhNo(e.target.value)} placeholder="XX-XXXXXXXXX-X" className={fieldCls}/>
+            </div>
+          </div>
+
+          {/* Contributions */}
+          {sectionHdr(<ShieldCheck size={14} className="text-emerald-600"/>, 'Monthly Contribution Amounts', 'bg-emerald-50 text-emerald-800')}
+          <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
+            <AlertCircle size={13} className="mt-0.5 flex-shrink-0"/>
+            Leave blank to use the <strong className="mx-1">auto-computed</strong> amount based on salary bracket. Enter a value to override.
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label:'SSS Contribution', val:sssAmt,  setVal:setSssAmt,  computed:computed.sss,       placeholder:`Auto: ${fmt(computed.sss)}`  },
+              { label:'HDMF (Pag-IBIG) Contribution', val:hdmfAmt, setVal:setHdmfAmt, computed:computed.pagIbig, placeholder:`Auto: ${fmt(computed.pagIbig)}`},
+              { label:'PhilHealth Contribution', val:phAmt,  setVal:setPhAmt,  computed:computed.philHealth, placeholder:`Auto: ${fmt(computed.philHealth)}`},
+            ].map(({ label, val, setVal, placeholder }) => (
+              <div key={label}>
+                <label className={labelCls}>{label}</label>
+                <div className="relative">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">₱</span>
+                  <input type="number" min={0} step={0.01}
+                    value={val} onChange={e => setVal(e.target.value)}
+                    placeholder={placeholder.replace('₱ ','').replace('₱','')}
+                    className={`${fieldCls} pl-6`}/>
+                </div>
+                {val !== '' && (
+                  <button onClick={() => setVal('')} className="mt-1 text-[10px] text-orange-600 hover:underline">Reset to auto</button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Preview */}
+          <div className="bg-gray-50 rounded-xl border border-gray-200 px-4 py-3 space-y-1.5">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Deductions Preview (Cut-Off 2)</p>
+            {[
+              { label:'SSS',        val: sssAmt  !== '' ? +sssAmt  : computed.sss,       base: computed.sss       },
+              { label:'Pag-IBIG',   val: hdmfAmt !== '' ? +hdmfAmt : computed.pagIbig,  base: computed.pagIbig  },
+              { label:'PhilHealth', val: phAmt   !== '' ? +phAmt   : computed.philHealth, base: computed.philHealth },
+            ].map(({ label, val, base }) => (
+              <div key={label} className="flex justify-between items-center text-sm">
+                <span className="text-gray-500">{label}</span>
+                <span className="font-semibold text-gray-800">
+                  {fmt(val)}
+                  {val !== base && <span className="ml-1.5 text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full font-semibold">Overridden</span>}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB: GOVERNMENT LOANS ── */}
+      {activeTab === 'loans' && (
+        <div className="space-y-5">
+          {/* SSS Loan */}
+          {sectionHdr(<Banknote size={14} className="text-blue-600"/>, 'SSS Loan', 'bg-blue-50 text-blue-800')}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>Outstanding Balance (PHP)</label>
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">₱</span>
+                <input type="number" min={0} step={0.01} value={sssLoanBal} onChange={e => setSssLoanBal(e.target.value)} placeholder="0.00" className={`${fieldCls} pl-6`}/>
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Deduction per Cut-Off (PHP)</label>
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">₱</span>
+                <input type="number" min={0} step={0.01} value={sssLoanCutoff} onChange={e => setSssLoanCutoff(e.target.value)} placeholder="0.00" className={`${fieldCls} pl-6`}/>
+              </div>
+            </div>
+          </div>
+
+          {/* HDMF Loan */}
+          {sectionHdr(<Banknote size={14} className="text-purple-600"/>, 'HDMF (Pag-IBIG) Loan', 'bg-purple-50 text-purple-800')}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>Outstanding Balance (PHP)</label>
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">₱</span>
+                <input type="number" min={0} step={0.01} value={hdmfLoanBal} onChange={e => setHdmfLoanBal(e.target.value)} placeholder="0.00" className={`${fieldCls} pl-6`}/>
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Deduction per Cut-Off (PHP)</label>
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">₱</span>
+                <input type="number" min={0} step={0.01} value={hdmfLoanCutoff} onChange={e => setHdmfLoanCutoff(e.target.value)} placeholder="0.00" className={`${fieldCls} pl-6`}/>
+              </div>
+            </div>
+          </div>
+
+          {/* Other Loans */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              {sectionHdr(<PlusCircle size={14} className="text-teal-600"/>, 'Other Loans', 'bg-teal-50 text-teal-800')}
+              <button onClick={addOtherLoan}
+                className="flex items-center gap-1 text-xs font-semibold text-teal-700 hover:text-teal-900 px-3 py-1.5 bg-teal-50 rounded-lg border border-teal-200">
+                <PlusCircle size={13}/> Add Loan
+              </button>
+            </div>
+            {otherLoans.length === 0 && (
+              <p className="text-sm text-gray-400 text-center py-4 bg-gray-50 rounded-xl">No other loans added.</p>
+            )}
+            {otherLoans.map(loan => (
+              <div key={loan.id} className="grid grid-cols-4 gap-2 mb-2 items-end p-3 bg-gray-50 rounded-xl border border-gray-200">
+                <div className="col-span-2">
+                  <label className={labelCls}>Loan Name</label>
+                  <input value={loan.name} onChange={e => updateOtherLoan(loan.id, 'name', e.target.value)} placeholder="e.g. Personal Loan" className={fieldCls}/>
+                </div>
+                <div>
+                  <label className={labelCls}>Balance (PHP)</label>
+                  <div className="relative">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">₱</span>
+                    <input type="number" min={0} step={0.01} value={loan.balance} onChange={e => updateOtherLoan(loan.id, 'balance', e.target.value)} placeholder="0.00" className={`${fieldCls} pl-6`}/>
+                  </div>
+                </div>
+                <div>
+                  <label className={labelCls}>Per Cut-Off</label>
+                  <div className="flex gap-1">
+                    <div className="relative flex-1">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">₱</span>
+                      <input type="number" min={0} step={0.01} value={loan.perCutOff} onChange={e => updateOtherLoan(loan.id, 'perCutOff', e.target.value)} placeholder="0.00" className={`${fieldCls} pl-6`}/>
+                    </div>
+                    <button onClick={() => removeOtherLoan(loan.id)} className="p-2 rounded-lg hover:bg-red-50 text-red-400 flex-shrink-0"><MinusCircle size={15}/></button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB: COMPANY SALARY LOAN ── */}
+      {activeTab === 'company' && (
+        <div className="space-y-4">
+          {sectionHdr(<Building size={14} className="text-orange-600"/>, 'Company Salary Loan', 'bg-orange-50 text-orange-800')}
+
+          <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-800">
+            <AlertCircle size={13} className="mt-0.5 flex-shrink-0"/>
+            The per cut-off amount is <strong className="mx-1">automatically deducted every payroll cut-off</strong> until the balance is cleared.
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelCls}>Total Loan Amount (PHP)</label>
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">₱</span>
+                <input type="number" min={0} step={0.01} value={companyLoan.totalAmount} onChange={e => cl('totalAmount', e.target.value)} placeholder="0.00" className={`${fieldCls} pl-6`}/>
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Outstanding Balance (PHP)</label>
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">₱</span>
+                <input type="number" min={0} step={0.01} value={companyLoan.balance} onChange={e => cl('balance', e.target.value)} placeholder="0.00" className={`${fieldCls} pl-6`}/>
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Deduction per Cut-Off (PHP)</label>
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">₱</span>
+                <input type="number" min={0} step={0.01} value={companyLoan.perCutOff} onChange={e => cl('perCutOff', e.target.value)} placeholder="0.00" className={`${fieldCls} pl-6`}/>
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Loan Start Date</label>
+              <input type="date" value={companyLoan.startDate} onChange={e => cl('startDate', e.target.value)} className={fieldCls}/>
+            </div>
+          </div>
+
+          {/* Live deduction preview */}
+          {+companyLoan.perCutOff > 0 && (
+            <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-orange-50 border border-orange-200">
+              <div className="text-sm text-orange-800">
+                <p className="font-semibold">Auto-deduction every cut-off</p>
+                <p className="text-xs text-orange-600 mt-0.5">Deducted from both Cut-Off 1 &amp; Cut-Off 2 each month</p>
+              </div>
+              <span className="text-lg font-bold text-orange-700">−{fmt(+companyLoan.perCutOff)}</span>
+            </div>
+          )}
+
+          {/* Estimated payoff */}
+          {+companyLoan.perCutOff > 0 && +companyLoan.balance > 0 && (
+            <div className="text-xs text-gray-500 text-center">
+              Estimated payoff: <strong className="text-gray-700">
+                {Math.ceil(+companyLoan.balance / +companyLoan.perCutOff)} cut-offs
+              </strong> remaining
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="flex gap-3 justify-end pt-2 border-t border-gray-100">
+        <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-gray-200 hover:bg-gray-50">Cancel</button>
+        <button onClick={save} className="flex items-center gap-2 px-5 py-2 text-sm rounded-lg bg-orange-700 text-white hover:bg-orange-800 font-medium">
+          <Check size={14}/> Save Deductions & Loans
         </button>
       </div>
     </div>
@@ -637,9 +1800,11 @@ function EmployeeManagement() {
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('All');
   const [typeFilter, setTypeFilter] = useState('All');
-  const [showAdd, setShowAdd] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [delConfirm, setDelConfirm] = useState(null);
+  const [showAdd,      setShowAdd]      = useState(false);
+  const [editing,      setEditing]      = useState(null);
+  const [delConfirm,   setDelConfirm]   = useState(null);
+  const [lwdEmp,       setLwdEmp]       = useState(null);
+  const [govEmp,       setGovEmp]       = useState(null);
 
   const filtered = useMemo(() => state.employees.filter(e =>
     (deptFilter==='All'||e.dept===deptFilter) &&
@@ -662,6 +1827,21 @@ function EmployeeManagement() {
     dispatch({ type:'DELETE_EMPLOYEE', id });
     toast(dispatch, `${emp.name} removed`, 'warning');
     setDelConfirm(null);
+  };
+  const saveLWD = (emp, lwd, calc) => {
+    dispatch({
+      type: 'SET_LAST_WORKING_DAY',
+      payload: {
+        id: uid(),
+        employeeId:      emp.id,
+        employeeName:    emp.name,
+        lastWorkingDay:  lwd,
+        status:          'Held',
+        ...calc,
+      },
+    });
+    toast(dispatch, `Last working day set for ${emp.name}. Final pay on hold.`, 'warning');
+    setLwdEmp(null);
   };
 
   return (
@@ -713,15 +1893,28 @@ function EmployeeManagement() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-gray-600 max-w-40 truncate" title={emp.position}>{emp.position||'—'}</td>
-                  <td className="px-4 py-3"><Badge status={emp.type}/></td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-col gap-0.5">
+                      <Badge status={emp.separated ? 'Separated' : emp.type}/>
+                      {emp.separated && emp.lastWorkingDay && (
+                        <span className="text-[10px] text-gray-400">LWD: {fmtDate(emp.lastWorkingDay)}</span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-4 py-3 font-medium text-gray-800">{emp.salary > 0 ? fmt(emp.salary) : <span className="text-gray-300">TBD</span>}</td>
                   <td className="px-4 py-3 text-gray-500">{emp.allowance > 0 ? <span className="text-emerald-600 font-medium">+{fmt(emp.allowance)}</span> : <span className="text-gray-300">—</span>}</td>
                   <td className="px-4 py-3 text-gray-500">{fmtDate(emp.hireDate)}</td>
                   <td className="px-4 py-3 text-gray-500 font-mono">••••{emp.bank}</td>
                   <td className="px-4 py-3">
                     <div className="flex gap-1">
-                      <button onClick={()=>setEditing(emp)} className="p-1.5 rounded-lg hover:bg-orange-50 text-orange-700"><Edit2 size={14}/></button>
-                      <button onClick={()=>setDelConfirm(emp)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500"><Trash2 size={14}/></button>
+                      <button onClick={()=>setEditing(emp)} className="p-1.5 rounded-lg hover:bg-orange-50 text-orange-700" title="Edit Employee"><Edit2 size={14}/></button>
+                      <button onClick={()=>setGovEmp(emp)} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600" title="Gov't Deductions & Loans"><ShieldCheck size={14}/></button>
+                      {!emp.separated && (
+                        <button onClick={()=>setLwdEmp(emp)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500" title="Set Last Working Day">
+                          <UserMinus size={14}/>
+                        </button>
+                      )}
+                      <button onClick={()=>setDelConfirm(emp)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500" title="Delete"><Trash2 size={14}/></button>
                     </div>
                   </td>
                 </tr>
@@ -739,6 +1932,24 @@ function EmployeeManagement() {
       </Modal>
       <Modal isOpen={!!editing} onClose={()=>setEditing(null)} title="Edit Employee" wide>
         {editing && <EmployeeForm initial={{...editing}} onSave={updateEmp} onClose={()=>setEditing(null)}/>}
+      </Modal>
+      <Modal isOpen={!!govEmp} onClose={()=>setGovEmp(null)} title={`Gov't Deductions & Loans — ${govEmp?.name || ''}`} wide>
+        {govEmp && (
+          <GovDeductionsModal
+            employee={govEmp}
+            onSave={emp => { updateEmp(emp); setGovEmp(null); }}
+            onClose={() => setGovEmp(null)}
+          />
+        )}
+      </Modal>
+      <Modal isOpen={!!lwdEmp} onClose={()=>setLwdEmp(null)} title={`Set Last Working Day — ${lwdEmp?.name || ''}`} wide>
+        {lwdEmp && (
+          <LWDModal
+            employee={lwdEmp}
+            onSave={(lwd, calc) => saveLWD(lwdEmp, lwd, calc)}
+            onClose={() => setLwdEmp(null)}
+          />
+        )}
       </Modal>
       <Modal isOpen={!!delConfirm} onClose={()=>setDelConfirm(null)} title="Confirm Delete">
         {delConfirm && (
@@ -771,45 +1982,55 @@ function empTypeLabel(type) {
 // ─────────────────────────────────────────────────────────────
 // PAYSLIP MODAL
 // ─────────────────────────────────────────────────────────────
-function PayslipModal({ payslip, employee, runPeriod, releaseDateLabel, otEntries, onClose }) {
+function PayslipModal({ payslip, employee, runPeriod, releaseDateLabel, otEntries, cutOffStartDate, onClose }) {
   if (!payslip || !employee) return null;
   const slipRef = useRef();
   const [downloading, setDownloading] = useState(false);
 
   // OT entries for this employee, grouped by type
+  // Only show Approved entries; flag entries dated before this cut-off's start (late approvals)
   const empOT = useMemo(() => {
     if (!otEntries?.length) return [];
-    return otEntries.filter(e => e.employeeId === employee.id);
+    return otEntries.filter(e => e.employeeId === employee.id && e.status === 'Approved');
   }, [otEntries, employee.id]);
 
   const otByType = useMemo(() => {
     const m = {};
     empOT.forEach(e => {
       const key = e.otType;
-      if (!m[key]) m[key] = { otType: key, hours: 0, otPay: 0, ndHours: 0, ndPay: 0 };
+      const isLate = cutOffStartDate && e.date < cutOffStartDate; // dated from a prior cut-off
+      if (!m[key]) m[key] = { otType: key, hours: 0, otPay: 0, ndHours: 0, ndPay: 0, hasLateApproval: false };
       m[key].hours   += e.hours?.otHours || 0;
       m[key].otPay   += e.pay?.totalOTPay || 0;
       m[key].ndHours += e.hours?.ndHours || 0;
       m[key].ndPay   += e.pay?.ndPay || 0;
+      if (isLate) m[key].hasLateApproval = true;
     });
     return Object.values(m);
-  }, [empOT]);
+  }, [empOT, cutOffStartDate]);
 
   const totalOTPay  = otByType.reduce((s, g) => s + g.otPay,  0);
   const totalNDPay  = otByType.reduce((s, g) => s + g.ndPay,  0);
   const totalNDHrs  = otByType.reduce((s, g) => s + g.ndHours, 0);
 
-  // Gross = base half-salary + adjustments + OT + ND
-  const adjustedGross = payslip.grossPay + totalOTPay + totalNDPay;
+  // If OT was already baked into grossPay via calcPayslip (otPayDirect path), don't add it again.
+  // payslip.overtimePay > 0 AND empOT.length > 0 → OT already in grossPay.
+  // Legacy payslips (no OT entries, or entries not yet approved) still add from empOT.
+  const otBakedIn    = payslip.overtimePay > 0 && empOT.length > 0;
+  const adjustedGross = otBakedIn
+    ? payslip.grossPay
+    : payslip.grossPay + totalOTPay + totalNDPay;
 
-  // Deductions — always shown; values are 0 on Cut-Off 1
-  const isCO1    = payslip.cutOff === 1;
-  const sssAmt   = isCO1 ? 0 : (payslip.sss       || 0);
-  const phAmt    = isCO1 ? 0 : (payslip.philHealth || 0);
-  const hdmfAmt  = isCO1 ? 0 : (payslip.pagIbig    || 0);
-  const sssLoan  = payslip.sssLoan  || 0;
-  const hdmfLoan = payslip.hdmfLoan || 0;
-  const totalDeductions = sssAmt + phAmt + hdmfAmt + sssLoan + hdmfLoan;
+  // Deductions — always shown; gov deductions are 0 on Cut-Off 1
+  const isCO1        = payslip.cutOff === 1;
+  const sssAmt       = isCO1 ? 0 : (payslip.sss       || 0);
+  const phAmt        = isCO1 ? 0 : (payslip.philHealth || 0);
+  const hdmfAmt      = isCO1 ? 0 : (payslip.pagIbig    || 0);
+  const sssLoan      = payslip.sssLoan     || 0;
+  const hdmfLoan     = payslip.hdmfLoan    || 0;
+  const companyLoan  = payslip.companyLoan || 0;
+  const otherLoansAmt= typeof payslip.otherLoans === 'number' ? payslip.otherLoans : 0;
+  const totalDeductions = sssAmt + phAmt + hdmfAmt + sssLoan + hdmfLoan + companyLoan + otherLoansAmt;
   const netPay   = adjustedGross - totalDeductions;
 
   // ── Download as PNG via html2canvas ──
@@ -917,8 +2138,17 @@ function PayslipModal({ payslip, employee, runPeriod, releaseDateLabel, otEntrie
                 const typeInfo = OT_TYPES.find(t => t.id === g.otType);
                 return (
                   <div key={g.otType}>
-                    <Row label={`${typeInfo?.label || g.otType} (${g.hours.toFixed(2)} hrs)`}
-                      value={`+${fmt(g.otPay)}`} color="text-emerald-600"/>
+                    <div className="flex justify-between items-baseline py-1.5 border-b border-gray-50 last:border-0">
+                      <span className="text-sm text-gray-600 flex items-center gap-1.5 flex-wrap">
+                        {typeInfo?.label || g.otType} ({g.hours.toFixed(2)} hrs)
+                        {g.hasLateApproval && (
+                          <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-semibold whitespace-nowrap">
+                            ↩ prev. cut-off
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-sm font-medium tabular-nums text-emerald-600">+{fmt(g.otPay)}</span>
+                    </div>
                     {g.ndHours > 0 && (
                       <Row label={`Night Differential (${g.ndHours.toFixed(2)} hrs)`}
                         value={`+${fmt(g.ndPay)}`} color="text-emerald-600" indent/>
@@ -946,25 +2176,41 @@ function PayslipModal({ payslip, employee, runPeriod, releaseDateLabel, otEntrie
             </div>
           </div>
 
-          {/* DEDUCTIONS — always show all rows; 0.00 when CO1 */}
+          {/* DEDUCTIONS — gov contributions + all loans */}
           <div className="border border-gray-200 rounded-xl overflow-hidden">
             <SectionHead color="bg-red-50 text-red-800 border-b border-red-100">Deductions</SectionHead>
             <div className="px-4 py-2">
-              <Row label="SSS"
-                value={sssAmt > 0 ? `-${fmt(sssAmt)}` : '₱0.00'}
+              {/* Gov't contributions */}
+              <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mt-1 mb-0.5">Gov't Contributions</p>
+              <Row label={`SSS${employee.sssNo ? ` (${employee.sssNo})` : ''}`}
+                value={sssAmt > 0 ? `-${fmt(sssAmt)}` : isCO1 ? '₱0.00' : '₱0.00'}
                 color={sssAmt > 0 ? 'text-red-500' : 'text-gray-300'}/>
-              <Row label="HDMF (Pag-IBIG)"
-                value={hdmfAmt > 0 ? `-${fmt(hdmfAmt)}` : '₱0.00'}
+              <Row label={`HDMF / Pag-IBIG${employee.hdmfNo ? ` (${employee.hdmfNo})` : ''}`}
+                value={hdmfAmt > 0 ? `-${fmt(hdmfAmt)}` : isCO1 ? '₱0.00' : '₱0.00'}
                 color={hdmfAmt > 0 ? 'text-red-500' : 'text-gray-300'}/>
-              <Row label="PhilHealth"
-                value={phAmt > 0 ? `-${fmt(phAmt)}` : '₱0.00'}
+              <Row label={`PhilHealth${employee.philHealthNo ? ` (${employee.philHealthNo})` : ''}`}
+                value={phAmt > 0 ? `-${fmt(phAmt)}` : isCO1 ? '₱0.00' : '₱0.00'}
                 color={phAmt > 0 ? 'text-red-500' : 'text-gray-300'}/>
-              <Row label="SSS Loan"
-                value={sssLoan > 0 ? `-${fmt(sssLoan)}` : '₱0.00'}
-                color={sssLoan > 0 ? 'text-red-500' : 'text-gray-300'}/>
-              <Row label="HDMF Loan"
-                value={hdmfLoan > 0 ? `-${fmt(hdmfLoan)}` : '₱0.00'}
-                color={hdmfLoan > 0 ? 'text-red-500' : 'text-gray-300'}/>
+              {/* Gov't loans */}
+              {(sssLoan > 0 || hdmfLoan > 0) && (
+                <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mt-2 mb-0.5">Gov't Loans</p>
+              )}
+              {sssLoan > 0 && (
+                <Row label="SSS Loan" value={`-${fmt(sssLoan)}`} color="text-red-500"/>
+              )}
+              {hdmfLoan > 0 && (
+                <Row label="HDMF Loan" value={`-${fmt(hdmfLoan)}`} color="text-red-500"/>
+              )}
+              {/* Company & other loans */}
+              {(companyLoan > 0 || otherLoansAmt > 0) && (
+                <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mt-2 mb-0.5">Company Loans</p>
+              )}
+              {companyLoan > 0 && (
+                <Row label="Company Salary Loan" value={`-${fmt(companyLoan)}`} color="text-red-500"/>
+              )}
+              {otherLoansAmt > 0 && (
+                <Row label="Other Loans" value={`-${fmt(otherLoansAmt)}`} color="text-red-500"/>
+              )}
               <div className="border-t border-gray-200 mt-1 pt-2">
                 <Row label="Total Deductions"
                   value={totalDeductions > 0 ? `-${fmt(totalDeductions)}` : '₱0.00'}
@@ -1023,34 +2269,64 @@ function PayrollProcessing() {
   const [selMonth,  setSelMonth]  = useState(now.getMonth() + 1); // 1-based
   const [selCutOff, setSelCutOff] = useState(1);                  // 1 or 2
 
-  const [processing,     setProcessing]     = useState(false);
-  const [preview,        setPreview]        = useState(null);
-  const [selectedPayslip,setSelectedPayslip]= useState(null);
+  const [processing,      setProcessing]      = useState(false);
+  const [preview,         setPreview]         = useState(null);
+  const [selectedPayslip, setSelectedPayslip] = useState(null);
+  const [reimbursements,  setReimbursements]  = useState({}); // { [empId]: amount }
 
   // Derive schedule whenever month/year changes
   const schedule = useMemo(() => getCutOffSchedule(selYear, selMonth), [selYear, selMonth]);
   const activeCO = selCutOff === 1 ? schedule.cutOff1 : schedule.cutOff2;
 
-  // Reset preview when selection changes
-  useEffect(() => { setPreview(null); }, [selYear, selMonth, selCutOff]);
+  // Reset preview & reimbursements when selection changes
+  useEffect(() => { setPreview(null); setReimbursements({}); }, [selYear, selMonth, selCutOff]);
 
+  // Only count Approved attendance records (absent / late types) within the active cut-off window
   const attendanceMap = useMemo(() => {
     const m = {};
     state.attendance.forEach(a => {
-      if (!m[a.employeeId]) m[a.employeeId] = { absences:0, lateMinutes:0 };
-      if (a.type==='Absent') m[a.employeeId].absences++;
-      else m[a.employeeId].lateMinutes += a.minutes||0;
+      const isApproved = !a.status || a.status === 'Approved';
+      const inRange    = a.date >= activeCO.startDate && a.date <= activeCO.endDate;
+      if (!isApproved || !inRange) return;
+      if (!m[a.employeeId]) m[a.employeeId] = { absences: 0, lateMinutes: 0 };
+      const t = (a.type === 'Absent' || a.type === 'absent') ? 'absent'
+              : (a.type === 'Late'   || a.type === 'late')   ? 'late'
+              : a.type;
+      if (t === 'absent') m[a.employeeId].absences     += (a.days || 1);
+      else if (t === 'late') m[a.employeeId].lateMinutes += (a.minutes || 0);
+      // Paid leave types (sick, vacation, etc.) don't deduct from pay
     });
     return m;
-  }, [state.attendance]);
+  }, [state.attendance, activeCO]);
 
-  const buildPreview = () => {
+  const buildPreview = (reimb = reimbursements) => {
+    // Collect Approved OT entries for this cut-off (by date OR assigned to this cut-off)
+    const approvedOT = state.otEntries.filter(e =>
+      e.status === 'Approved' &&
+      !e.includedInPayrollId &&
+      (
+        (e.date >= activeCO.startDate && e.date <= activeCO.endDate) ||
+        e.assignedCutOffStart === activeCO.startDate
+      )
+    );
+
     const rows = state.employees.map(emp => {
-      const att  = attendanceMap[emp.id] || {};
-      const calc = calcPayslip(emp, 11, att.absences||0, att.lateMinutes||0, 0, selCutOff);
-      return { emp, calc };
+      const att       = attendanceMap[emp.id] || {};
+      const reimb_amt = parseFloat(reimb[emp.id] || 0);
+      const empOT     = approvedOT.filter(e => e.employeeId === emp.id);
+      const otPay     = empOT.reduce((s, e) => s + (e.pay?.total || 0), 0);
+      const otIds     = empOT.map(e => e.id);
+      const calc      = calcPayslip(emp, 11, att.absences||0, att.lateMinutes||0, 0, selCutOff, reimb_amt, otPay);
+      return { emp, calc, otIds };
     });
     setPreview(rows);
+  };
+
+  // Live-recompute a single row when its reimbursement changes
+  const updateReimbursement = (empId, value) => {
+    const updated = { ...reimbursements, [empId]: value };
+    setReimbursements(updated);
+    if (preview) buildPreview(updated);
   };
 
   const runPayroll = () => {
@@ -1063,14 +2339,15 @@ function PayrollProcessing() {
     }
     setProcessing(true);
     setTimeout(() => {
-      const payslips = preview.map(({ emp, calc }) => ({
+      const payrollId = uid();
+      const payslips  = preview.map(({ emp, calc }) => ({
         id: uid(), employeeId: emp.id, ...calc,
         period: activeCO.periodLabel, date: activeCO.endDate, status: 'Paid',
       }));
       dispatch({
         type: 'ADD_PAYROLL_RUN',
         payload: {
-          id:               uid(),
+          id:               payrollId,
           period:           activeCO.periodLabel,
           coverage:         activeCO.coverage,
           cutOff:           selCutOff,
@@ -1083,15 +2360,21 @@ function PayrollProcessing() {
           payslips,
         },
       });
+      // Mark all included OT entries so they won't be double-counted
+      const includedOTIds = preview.flatMap(r => r.otIds || []);
+      if (includedOTIds.length > 0) {
+        dispatch({ type: 'MARK_OT_INCLUDED', ids: includedOTIds, payrollId });
+      }
       toast(dispatch, `Payroll for "${activeCO.periodLabel}" processed — Release: ${activeCO.releaseDateLabel}`);
       setProcessing(false);
       setPreview(null);
     }, 2000);
   };
 
-  const totalGross  = preview ? preview.reduce((s,r)=>s+r.calc.grossPay,0) : 0;
-  const totalNet    = preview ? preview.reduce((s,r)=>s+r.calc.netPay,0)   : 0;
-  const totalDeduct = preview ? preview.reduce((s,r)=>s+r.calc.totalDeductions,0) : 0;
+  const totalGross  = preview ? preview.reduce((s,r)=>s+r.calc.grossPay,0)         : 0;
+  const totalNet    = preview ? preview.reduce((s,r)=>s+r.calc.netPay,0)           : 0;
+  const totalDeduct = preview ? preview.reduce((s,r)=>s+r.calc.totalDeductions,0)  : 0;
+  const totalReimb  = preview ? preview.reduce((s,r)=>s+(r.calc.reimbursement||0),0) : 0;
 
   const yearOptions = Array.from({ length: 5 }, (_, i) => now.getFullYear() - 1 + i);
 
@@ -1213,11 +2496,48 @@ function PayrollProcessing() {
               : <span><strong>{activeCO.label}</strong> — Basic salary ÷ 2 + allowances. Full government deductions applied (SSS, PhilHealth, Pag-IBIG, Withholding Tax).</span>}
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
-            <StatCard icon={DollarSign} label="Total Gross Pay"   value={fmt(totalGross)}  color="indigo"/>
-            <StatCard icon={TrendingUp} label="Total Deductions"  value={fmt(totalDeduct)} color="amber"/>
-            <StatCard icon={DollarSign} label="Total Net Pay"     value={fmt(totalNet)}    color="green"/>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <StatCard icon={DollarSign} label="Total Gross Pay"      value={fmt(totalGross)}  color="indigo"/>
+            <StatCard icon={Banknote}   label="Total Reimbursements" value={fmt(totalReimb)}  color="green"/>
+            <StatCard icon={TrendingUp} label="Total Deductions"     value={fmt(totalDeduct)} color="amber"/>
+            <StatCard icon={DollarSign} label="Total Net Pay"        value={fmt(totalNet)}    color="green"/>
           </div>
+
+          <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-teal-50 border border-teal-200 text-sm text-teal-800">
+            <Banknote size={14} className="flex-shrink-0"/>
+            <span>Enter any <strong>reimbursements</strong> in the table below — amounts are added to gross pay and update totals in real time.</span>
+          </div>
+
+          {/* OT / Attendance approval status notice */}
+          {(() => {
+            const pendingOT  = state.otEntries.filter(e => (!e.status || e.status === 'Pending') && !e.includedInPayrollId &&
+              ((e.date >= activeCO.startDate && e.date <= activeCO.endDate) || e.assignedCutOffStart === activeCO.startDate)).length;
+            const pendingAtt = state.attendance.filter(a => a.status === 'Pending' && a.date >= activeCO.startDate && a.date <= activeCO.endDate).length;
+            const approvedOT = state.otEntries.filter(e => e.status === 'Approved' && !e.includedInPayrollId &&
+              ((e.date >= activeCO.startDate && e.date <= activeCO.endDate) || e.assignedCutOffStart === activeCO.startDate)).length;
+            return (
+              <div className="flex flex-wrap gap-2">
+                {approvedOT > 0 && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-800">
+                    <Check size={13} className="flex-shrink-0"/>
+                    <span><strong>{approvedOT}</strong> approved OT {approvedOT === 1 ? 'entry' : 'entries'} will be included in this payroll.</span>
+                  </div>
+                )}
+                {pendingOT > 0 && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-yellow-50 border border-yellow-200 text-sm text-yellow-800">
+                    <AlertCircle size={13} className="flex-shrink-0"/>
+                    <span><strong>{pendingOT}</strong> OT {pendingOT === 1 ? 'entry' : 'entries'} still Pending — not included until approved.</span>
+                  </div>
+                )}
+                {pendingAtt > 0 && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-yellow-50 border border-yellow-200 text-sm text-yellow-800">
+                    <AlertCircle size={13} className="flex-shrink-0"/>
+                    <span><strong>{pendingAtt}</strong> attendance record{pendingAtt !== 1 ? 's' : ''} still Pending — deductions won't apply until approved.</span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 bg-gray-50/50">
@@ -1242,6 +2562,8 @@ function PayrollProcessing() {
                     <th className="px-4 py-3 text-left font-medium">Dept</th>
                     <th className="px-4 py-3 text-left font-medium">Basic (÷2)</th>
                     {selCutOff === 2 && <th className="px-4 py-3 text-left font-medium">Allowance</th>}
+                    <th className="px-4 py-3 text-left font-medium text-orange-700">OT Pay</th>
+                    <th className="px-4 py-3 text-left font-medium text-teal-700">Reimbursement</th>
                     <th className="px-4 py-3 text-left font-medium">Gross Pay</th>
                     <th className="px-4 py-3 text-left font-medium">Absences</th>
                     <th className="px-4 py-3 text-left font-medium">Late</th>
@@ -1251,7 +2573,7 @@ function PayrollProcessing() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {preview.map(({ emp, calc }) => (
+                  {preview.map(({ emp, calc, otIds }) => (
                     <tr key={emp.id} className="hover:bg-gray-50/50">
                       <td className="px-4 py-3 font-medium text-gray-800">{emp.name}</td>
                       <td className="px-4 py-3 text-gray-500">{emp.dept}</td>
@@ -1261,7 +2583,31 @@ function PayrollProcessing() {
                           {calc.allowance > 0 ? `+${fmt(calc.allowance)}` : <span className="text-gray-300">—</span>}
                         </td>
                       )}
-                      <td className="px-4 py-3 text-emerald-600 font-medium">{fmt(calc.grossPay)}</td>
+                      <td className="px-4 py-3 text-orange-600 font-medium">
+                        {calc.overtimePay > 0
+                          ? <span>+{fmt(calc.overtimePay)}<span className="ml-1 text-[10px] text-orange-400">({otIds?.length || 0} entr{(otIds?.length || 0) === 1 ? 'y' : 'ies'})</span></span>
+                          : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <div className="relative">
+                          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">₱</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            placeholder="0.00"
+                            value={reimbursements[emp.id] || ''}
+                            onChange={e => updateReimbursement(emp.id, e.target.value)}
+                            className="w-28 pl-6 pr-2 py-1.5 text-sm rounded-lg border border-teal-200 bg-teal-50 focus:outline-none focus:ring-2 focus:ring-teal-400 text-teal-800 font-medium placeholder:text-gray-300"
+                          />
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-emerald-600 font-medium">
+                        {fmt(calc.grossPay)}
+                        {calc.reimbursement > 0 && (
+                          <span className="ml-1 text-xs text-teal-600">(+{fmt(calc.reimbursement)} reimb.)</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-center">{calc.absences>0?<span className="text-red-500">{calc.absences}d</span>:<span className="text-gray-300">—</span>}</td>
                       <td className="px-4 py-3 text-center">{calc.lateMinutes>0?<span className="text-yellow-500">{calc.lateMinutes}m</span>:<span className="text-gray-300">—</span>}</td>
                       {selCutOff === 2 && (
@@ -1288,9 +2634,13 @@ function PayrollProcessing() {
             employee={selectedPayslip.emp}
             runPeriod={activeCO.periodLabel}
             releaseDateLabel={activeCO.releaseDateLabel}
-            cutOffDates={activeCO.coverage}
+            cutOffStartDate={activeCO.startDate}
             otEntries={state.otEntries.filter(e =>
-              e.date >= activeCO.startDate && e.date <= activeCO.endDate
+              e.status === 'Approved' &&
+              (
+                (e.date >= activeCO.startDate && e.date <= activeCO.endDate) ||
+                e.assignedCutOffStart === activeCO.startDate
+              )
             )}
             onClose={()=>setSelectedPayslip(null)}
           />
@@ -1301,154 +2651,507 @@ function PayrollProcessing() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// ATTENDANCE & LEAVE
+// LEAVE FORM
 // ─────────────────────────────────────────────────────────────
-function AttendanceLeave() {
-  const { state, dispatch } = useApp();
-  const [form, setForm] = useState({ employeeId:'', date: today(), type:'Absent', minutes:0, reason:'' });
-  const [search, setSearch] = useState('');
-  const [showForm, setShowForm] = useState(false);
+function LeaveForm({ employees, attendance, onSave, onClose }) {
+  const [form, setForm] = useState({ employeeId:'', date:today(), type:'sick', days:1, minutes:0, reason:'', status:'Pending' });
+  const [errs, setErrs] = useState({});
+  const f = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
-  const filtered = useMemo(() => state.attendance.filter(a => {
-    const emp = state.employees.find(e=>e.id===a.employeeId);
-    return !search || (emp && emp.name.toLowerCase().includes(search.toLowerCase()));
-  }), [state.attendance, state.employees, search]);
+  const selectedEmp  = employees.find(e => e.id === form.employeeId);
+  const lt           = LEAVE_TYPES.find(t => t.id === form.type);
+  const silInfo      = selectedEmp ? calcSIL(selectedEmp, attendance, today()) : null;
+  const isSIL        = form.type === 'sil';
+  const silBlocked   = isSIL && silInfo && !silInfo.eligible;
+  const silInsuff    = isSIL && silInfo && silInfo.eligible && (+form.days > silInfo.balance);
 
-  const empMap = useMemo(() => Object.fromEntries(state.employees.map(e=>[e.id,e])), [state.employees]);
-
-  const save = () => {
-    if (!form.employeeId) { toast(dispatch,'Select an employee','error'); return; }
-    dispatch({ type:'ADD_ATTENDANCE', payload:{ id:uid(), ...form, minutes:+form.minutes } });
-    toast(dispatch,'Attendance record added');
-    setShowForm(false);
-    setForm({ employeeId:'', date:today(), type:'Absent', minutes:0, reason:'' });
+  const validate = () => {
+    const e = {};
+    if (!form.employeeId) e.employeeId = 'Select an employee';
+    if (!form.date)       e.date       = 'Date is required';
+    if (silBlocked)       e.type       = `Not yet eligible for SIL — eligible on ${fmtDate(silInfo.eligibleDate)} (${silInfo.daysLeft} days away)`;
+    else if (silInsuff)   e.type       = `Insufficient SIL balance — only ${silInfo.balance} day(s) remaining`;
+    if (lt?.daysField && (!form.days || +form.days < 0.5)) e.days = 'Minimum 0.5 day';
+    if (!lt?.daysField   && (!form.minutes || +form.minutes < 1)) e.minutes = 'Enter minutes late';
+    setErrs(e); return !Object.keys(e).length;
   };
 
-  const summary = useMemo(() => {
-    const m = {};
-    state.employees.forEach(e => { m[e.id] = { absences:0, lateMinutes:0 }; });
-    state.attendance.forEach(a => {
-      if (!m[a.employeeId]) m[a.employeeId] = { absences:0, lateMinutes:0 };
-      if (a.type==='Absent') m[a.employeeId].absences++;
-      else m[a.employeeId].lateMinutes += a.minutes||0;
-    });
-    return m;
-  }, [state.attendance, state.employees]);
-
   return (
-    <div className="p-6 space-y-5">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4">
+      {/* Employee */}
+      <div>
+        <label className="block text-xs font-semibold text-gray-600 mb-1.5">Employee</label>
+        <select value={form.employeeId} onChange={e => f('employeeId', e.target.value)}
+          className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-orange-400">
+          <option value="">— Select Employee —</option>
+          {employees.map(e => <option key={e.id} value={e.id}>{e.name} ({e.dept})</option>)}
+        </select>
+        {errs.employeeId && <p className="text-xs text-red-500 mt-1">{errs.employeeId}</p>}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Attendance & Leave</h1>
-          <p className="text-sm text-gray-500">{state.attendance.length} records logged</p>
+          <label className="block text-xs font-semibold text-gray-600 mb-1.5">Date</label>
+          <input type="date" value={form.date} onChange={e => f('date', e.target.value)}
+            className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-orange-400"/>
+          {errs.date && <p className="text-xs text-red-500 mt-1">{errs.date}</p>}
         </div>
-        <button onClick={()=>setShowForm(true)} className="flex items-center gap-2 px-4 py-2 bg-orange-700 text-white rounded-xl text-sm font-medium hover:bg-orange-800">
-          <Plus size={16}/> Log Record
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1.5">Status</label>
+          <select value={form.status} onChange={e => f('status', e.target.value)}
+            className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-orange-400">
+            <option>Approved</option><option>Pending</option><option>Rejected</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Leave type dropdown */}
+      <div>
+        <label className="block text-xs font-semibold text-gray-600 mb-1.5">Leave / Absence Type</label>
+        <select value={form.type} onChange={e => f('type', e.target.value)}
+          className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-orange-400">
+          {LEAVE_TYPES.map(lt => (
+            <option key={lt.id} value={lt.id}>
+              {lt.label}{lt.paid ? ' (Paid)' : ''}
+            </option>
+          ))}
+        </select>
+        {errs.type && (
+          <div className="mt-2 flex items-start gap-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700">
+            <AlertCircle size={13} className="mt-0.5 flex-shrink-0"/>{errs.type}
+          </div>
+        )}
+      </div>
+
+      {/* SIL status banner */}
+      {isSIL && silInfo && (
+        <div className={`flex items-start gap-2 px-3 py-2.5 rounded-xl text-sm border ${
+          silBlocked  ? 'bg-red-50 border-red-200 text-red-800' :
+          silInsuff   ? 'bg-yellow-50 border-yellow-200 text-yellow-800' :
+                        'bg-purple-50 border-purple-200 text-purple-800'}`}>
+          <AlertCircle size={14} className="mt-0.5 flex-shrink-0"/>
+          {silBlocked
+            ? `Not eligible for SIL — 1 year of service required. Eligible on ${fmtDate(silInfo.eligibleDate)}.`
+            : `SIL Balance: ${silInfo.balance} of ${silInfo.maxPerYear} days available (${silInfo.accrued} accrued · ${silInfo.used} used this year)`}
+        </div>
+      )}
+
+      {/* Days / Minutes */}
+      {lt?.daysField ? (
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1.5">Number of Days</label>
+          <input type="number" value={form.days} onChange={e => f('days', e.target.value)}
+            min={0.5} max={60} step={0.5}
+            className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-orange-400"/>
+          {errs.days && <p className="text-xs text-red-500 mt-1">{errs.days}</p>}
+        </div>
+      ) : (
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1.5">Minutes Late</label>
+          <input type="number" value={form.minutes} onChange={e => f('minutes', e.target.value)}
+            min={1} max={480}
+            className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-orange-400"/>
+          {errs.minutes && <p className="text-xs text-red-500 mt-1">{errs.minutes}</p>}
+        </div>
+      )}
+
+      {/* Reason */}
+      <div>
+        <label className="block text-xs font-semibold text-gray-600 mb-1.5">Notes / Reason</label>
+        <textarea value={form.reason} onChange={e => f('reason', e.target.value)}
+          rows={2} placeholder="Optional details…"
+          className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 resize-none focus:outline-none focus:ring-2 focus:ring-orange-400"/>
+      </div>
+
+      <div className="flex gap-3 justify-end pt-1">
+        <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-gray-200 hover:bg-gray-50">Cancel</button>
+        <button onClick={() => { if (validate()) onSave({ ...form, days:+form.days||1, minutes:+form.minutes||0 }); }}
+          disabled={silBlocked}
+          className="px-5 py-2 text-sm rounded-lg bg-orange-700 text-white hover:bg-orange-800 font-medium disabled:opacity-50">
+          Save Record
         </button>
       </div>
+    </div>
+  );
+}
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {state.employees.slice(0,4).map(emp => (
-          <div key={emp.id} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-            <p className="font-medium text-gray-800 text-sm truncate">{emp.name}</p>
-            <p className="text-xs text-gray-400 mb-2">{emp.dept}</p>
-            <div className="flex gap-3 text-xs">
-              <span className="text-red-500 font-medium">{summary[emp.id]?.absences||0} absent</span>
-              <span className="text-yellow-500 font-medium">{summary[emp.id]?.lateMinutes||0}m late</span>
-            </div>
-          </div>
-        ))}
+// ─────────────────────────────────────────────────────────────
+// LEAVE RECORDS TAB
+// ─────────────────────────────────────────────────────────────
+function LeaveRecordsTab({ records, empMap, employees, search, setSearch, typeFilter, setTypeFilter, empFilter, setEmpFilter, onDelete, onApprove, onReject }) {
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-3">
+        <div className="relative flex-1 min-w-48">
+          <Search size={14} className="absolute left-2.5 top-2.5 text-gray-400"/>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employee…"
+            className="w-full pl-8 pr-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50"/>
+        </div>
+        <select value={empFilter} onChange={e => setEmpFilter(e.target.value)}
+          className="px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50">
+          <option value="all">All Employees</option>
+          {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+        </select>
+        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
+          className="px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50">
+          <option value="all">All Types</option>
+          {LEAVE_TYPES.map(lt => <option key={lt.id} value={lt.id}>{lt.label}</option>)}
+        </select>
       </div>
 
-      {/* Logs */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100">
-          <h3 className="font-semibold text-gray-700 flex-1">Attendance Logs</h3>
-          <div className="relative">
-            <Search size={14} className="absolute left-2.5 top-2.5 text-gray-400"/>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search employee…"
-              className="pl-8 pr-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50"/>
-          </div>
-        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
-                {['Employee','Department','Date','Type','Minutes/Details','Reason',''].map(h=>(
-                  <th key={h} className="px-4 py-3 text-left font-medium">{h}</th>
+                {['Employee','Dept','Date','Type','Days / Minutes','With Pay','Reason','Status',''].map(h => (
+                  <th key={h} className="px-4 py-3 text-left font-medium whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {filtered.map(rec => {
+              {records.map(rec => {
                 const emp = empMap[rec.employeeId];
+                const lt  = LEAVE_TYPES.find(t => t.id === rec.type || t.label === rec.type) || { label:rec.type, badge:'bg-gray-100 text-gray-600', paid:false };
                 return (
                   <tr key={rec.id} className="hover:bg-gray-50/50">
-                    <td className="px-4 py-3 font-medium text-gray-800">{emp?.name||rec.employeeId}</td>
-                    <td className="px-4 py-3 text-gray-500">{emp?.dept||'—'}</td>
-                    <td className="px-4 py-3 text-gray-500">{fmtDate(rec.date)}</td>
-                    <td className="px-4 py-3"><Badge status={rec.type}/></td>
-                    <td className="px-4 py-3 text-gray-600">
-                      {rec.type==='Late' ? `${rec.minutes} minutes late` : 'Full day absent'}
-                    </td>
-                    <td className="px-4 py-3 text-gray-500">{rec.reason||'—'}</td>
+                    <td className="px-4 py-3 font-medium text-gray-800">{emp?.name || rec.employeeId}</td>
+                    <td className="px-4 py-3 text-gray-500">{emp?.dept || '—'}</td>
+                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmtDate(rec.date)}</td>
                     <td className="px-4 py-3">
-                      <button onClick={()=>{dispatch({type:'DELETE_ATTENDANCE',id:rec.id});toast(dispatch,'Record removed','warning');}}
-                        className="p-1.5 rounded-lg hover:bg-red-50 text-red-400"><Trash2 size={14}/></button>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${lt.badge}`}>{lt.label}</span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {lt.daysField === false
+                        ? `${rec.minutes || 0} min late`
+                        : `${rec.days || 1} day${(rec.days || 1) !== 1 ? 's' : ''}`}
+                    </td>
+                    <td className="px-4 py-3">
+                      {lt.paid
+                        ? <span className="text-emerald-600 font-medium text-xs">✓ Paid</span>
+                        : <span className="text-gray-400 text-xs">Unpaid</span>}
+                    </td>
+                    <td className="px-4 py-3 text-gray-500 max-w-[160px] truncate" title={rec.reason}>{rec.reason || '—'}</td>
+                    <td className="px-4 py-3"><Badge status={rec.status || 'Approved'}/></td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1">
+                        {(rec.status === 'Pending' || !rec.status) && (
+                          <button
+                            onClick={() => onApprove && onApprove(rec.id)}
+                            title="Approve"
+                            className="flex items-center gap-0.5 px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-medium">
+                            <Check size={11}/> Approve
+                          </button>
+                        )}
+                        {rec.status === 'Approved' && (
+                          <button
+                            onClick={() => onReject && onReject(rec.id)}
+                            title="Revoke"
+                            className="flex items-center gap-0.5 px-2 py-1 rounded-lg bg-yellow-50 text-yellow-700 hover:bg-yellow-100 text-xs font-medium">
+                            <X size={11}/> Revoke
+                          </button>
+                        )}
+                        <button onClick={() => onDelete(rec.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-400"><Trash2 size={14}/></button>
+                      </div>
                     </td>
                   </tr>
                 );
               })}
-              {!filtered.length && (
-                <tr><td colSpan={7} className="px-4 py-10 text-center text-gray-400">No records found.</td></tr>
+              {!records.length && (
+                <tr><td colSpan={9} className="px-4 py-10 text-center text-gray-400">No records found.</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
+    </div>
+  );
+}
 
-      <Modal isOpen={showForm} onClose={()=>setShowForm(false)} title="Log Attendance / Leave">
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Employee</label>
-            <select value={form.employeeId} onChange={e=>setForm(p=>({...p,employeeId:e.target.value}))}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50">
-              <option value="">— Select Employee —</option>
-              {state.employees.map(e=><option key={e.id} value={e.id}>{e.name} ({e.dept})</option>)}
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
-              <input type="date" value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50"/>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
-              <select value={form.type} onChange={e=>setForm(p=>({...p,type:e.target.value}))}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50">
-                <option>Absent</option><option>Late</option>
-              </select>
-            </div>
-          </div>
-          {form.type==='Late' && (
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Minutes Late</label>
-              <input type="number" value={form.minutes} onChange={e=>setForm(p=>({...p,minutes:e.target.value}))} min={1} max={480}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50"/>
-            </div>
-          )}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Reason</label>
-            <input value={form.reason} onChange={e=>setForm(p=>({...p,reason:e.target.value}))} placeholder="Optional note"
-              className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50"/>
-          </div>
-          <div className="flex gap-3 justify-end pt-2">
-            <button onClick={()=>setShowForm(false)} className="px-4 py-2 text-sm rounded-lg border border-gray-200 hover:bg-gray-50">Cancel</button>
-            <button onClick={save} className="px-5 py-2 text-sm rounded-lg bg-orange-700 text-white hover:bg-orange-800 font-medium">Save Record</button>
-          </div>
+// ─────────────────────────────────────────────────────────────
+// SIL LEDGER TAB
+// ─────────────────────────────────────────────────────────────
+function SILLedgerTab({ employees, attendance, todayStr }) {
+  const silData = useMemo(() =>
+    employees.map(emp => ({ emp, sil: calcSIL(emp, attendance, todayStr) }))
+      .sort((a, b) => {
+        if (a.sil.eligible !== b.sil.eligible) return a.sil.eligible ? -1 : 1;
+        return a.emp.name.localeCompare(b.emp.name);
+      }),
+    [employees, attendance, todayStr]
+  );
+  const eligible = silData.filter(d => d.sil.eligible).length;
+
+  return (
+    <div className="space-y-4">
+      {/* Info banner */}
+      <div className="flex items-start gap-3 p-3.5 rounded-xl bg-purple-50 border border-purple-200 text-sm text-purple-800">
+        <AlertCircle size={15} className="mt-0.5 flex-shrink-0"/>
+        <span>
+          <strong>Service Incentive Leave (SIL)</strong> — under the Philippine Labor Code, employees are entitled to <strong>5 days with pay per year</strong> after completing <strong>1 year of continuous service</strong>. SIL accrues at <strong>≈ 0.42 days/month</strong> from the eligibility date.
+        </span>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3">
+          <p className="text-2xl font-bold text-purple-700">{eligible}</p>
+          <p className="text-xs text-purple-600 font-medium">Eligible Employees</p>
         </div>
+        <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
+          <p className="text-2xl font-bold text-gray-600">{employees.length - eligible}</p>
+          <p className="text-xs text-gray-500 font-medium">Not Yet Eligible</p>
+        </div>
+        <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+          <p className="text-2xl font-bold text-blue-700">
+            {silData.filter(d => d.sil.eligible).reduce((s, d) => s + d.sil.used, 0)}
+          </p>
+          <p className="text-xs text-blue-600 font-medium">SIL Days Used (YTD)</p>
+        </div>
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+          <p className="text-2xl font-bold text-emerald-700">
+            {parseFloat(silData.filter(d => d.sil.eligible).reduce((s, d) => s + d.sil.balance, 0).toFixed(2))}
+          </p>
+          <p className="text-xs text-emerald-600 font-medium">Total SIL Balance</p>
+        </div>
+      </div>
+
+      {/* Per-employee table */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                {['Employee','Dept','Hire Date','Eligible From','Eligibility','Accrued','Used','Balance','Progress'].map(h => (
+                  <th key={h} className="px-4 py-3 text-left font-medium whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {silData.map(({ emp, sil }) => (
+                <tr key={emp.id} className={`hover:bg-gray-50/50 ${!sil.eligible ? 'opacity-60' : ''}`}>
+                  <td className="px-4 py-3 font-medium text-gray-800">{emp.name}</td>
+                  <td className="px-4 py-3 text-gray-500">{emp.dept}</td>
+                  <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmtDate(emp.hireDate)}</td>
+                  <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmtDate(sil.eligibleDate)}</td>
+                  <td className="px-4 py-3">
+                    {sil.eligible
+                      ? <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
+                          <Check size={10}/> Eligible
+                        </span>
+                      : <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                          {sil.daysLeft}d to go
+                        </span>}
+                  </td>
+                  <td className="px-4 py-3 font-semibold text-purple-700">{sil.eligible ? sil.accrued : '—'}</td>
+                  <td className="px-4 py-3">
+                    {sil.eligible
+                      ? <span className={sil.used > 0 ? 'text-red-600 font-medium' : 'text-gray-400'}>{sil.used > 0 ? sil.used : '—'}</span>
+                      : <span className="text-gray-300">—</span>}
+                  </td>
+                  <td className="px-4 py-3 font-bold text-gray-800">{sil.eligible ? sil.balance : '—'}</td>
+                  <td className="px-4 py-3">
+                    {sil.eligible ? (
+                      <div className="flex items-center gap-2 min-w-24">
+                        <div className="flex-1 bg-gray-100 rounded-full h-2">
+                          <div className="bg-purple-500 h-2 rounded-full transition-all"
+                            style={{ width: `${Math.min(100, (sil.balance / sil.maxPerYear) * 100)}%` }}/>
+                        </div>
+                        <span className="text-xs text-purple-600 font-semibold whitespace-nowrap">{sil.balance}/{sil.maxPerYear}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 min-w-24">
+                        <div className="flex-1 bg-gray-100 rounded-full h-2">
+                          <div className="bg-gray-300 h-2 rounded-full"
+                            style={{ width: `${Math.max(0, 100 - (sil.daysLeft / 365) * 100)}%` }}/>
+                        </div>
+                        <span className="text-xs text-gray-400 whitespace-nowrap">{sil.daysLeft}d</span>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// TARDINESS LOG TAB
+// ─────────────────────────────────────────────────────────────
+function TardinessTab({ records, empMap, onDelete }) {
+  const sorted     = [...records].sort((a, b) => b.date.localeCompare(a.date));
+  const totalMins  = sorted.reduce((s, r) => s + (r.minutes || 0), 0);
+  const hrs        = Math.floor(totalMins / 60);
+  const mins       = totalMins % 60;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-yellow-50 border border-yellow-200 text-sm text-yellow-800">
+        <Timer size={14}/>
+        <span><strong>{sorted.length}</strong> tardiness records · Total time lost: <strong>{hrs}h {mins}m</strong></span>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                {['Employee','Department','Date','Minutes Late','Deduction','Reason',''].map(h => (
+                  <th key={h} className="px-4 py-3 text-left font-medium whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {sorted.map(rec => {
+                const emp       = empMap[rec.employeeId];
+                const dailyRate = emp ? (emp.salary || 0) / 26 : 0;
+                const deduction = (dailyRate / 8 / 60) * (rec.minutes || 0);
+                return (
+                  <tr key={rec.id} className="hover:bg-gray-50/50">
+                    <td className="px-4 py-3 font-medium text-gray-800">{emp?.name || rec.employeeId}</td>
+                    <td className="px-4 py-3 text-gray-500">{emp?.dept || '—'}</td>
+                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmtDate(rec.date)}</td>
+                    <td className="px-4 py-3"><span className="font-semibold text-yellow-700">{rec.minutes || 0} min</span></td>
+                    <td className="px-4 py-3 text-red-600 font-medium">−{fmt(deduction)}</td>
+                    <td className="px-4 py-3 text-gray-500">{rec.reason || '—'}</td>
+                    <td className="px-4 py-3">
+                      <button onClick={() => onDelete(rec.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-400"><Trash2 size={14}/></button>
+                    </td>
+                  </tr>
+                );
+              })}
+              {!sorted.length && (
+                <tr><td colSpan={7} className="px-4 py-10 text-center text-gray-400">No tardiness records found.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// ATTENDANCE & LEAVE (main page)
+// ─────────────────────────────────────────────────────────────
+function AttendanceLeave() {
+  const { state, dispatch } = useApp();
+  const [activeTab,  setActiveTab]  = useState('records');
+  const [showForm,   setShowForm]   = useState(false);
+  const [search,     setSearch]     = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [empFilter,  setEmpFilter]  = useState('all');
+
+  const empMap   = useMemo(() => Object.fromEntries(state.employees.map(e => [e.id, e])), [state.employees]);
+  const todayStr = today();
+
+  // Normalize old Absent/Late records to new IDs for display
+  const normalizeType = (t) => {
+    if (t === 'Absent') return 'absent';
+    if (t === 'Late')   return 'late';
+    return t;
+  };
+
+  const allRecords = useMemo(() =>
+    state.attendance.map(r => ({ ...r, type: normalizeType(r.type) }))
+  , [state.attendance]);
+
+  const tardinessRecords = useMemo(() => allRecords.filter(r => r.type === 'late'), [allRecords]);
+
+  const filteredRecords = useMemo(() => allRecords.filter(r => {
+    const emp = empMap[r.employeeId];
+    return (empFilter  === 'all' || r.employeeId === empFilter)
+        && (typeFilter === 'all' || r.type === typeFilter)
+        && (!search || (emp && emp.name.toLowerCase().includes(search.toLowerCase())));
+  }).sort((a, b) => b.date.localeCompare(a.date)), [allRecords, empMap, search, typeFilter, empFilter]);
+
+  // Summary stats
+  const todayAbsent = allRecords.filter(r => r.date === todayStr && r.type === 'absent').length;
+  const todayLate   = allRecords.filter(r => r.date === todayStr && r.type === 'late').length;
+  const totalLeave  = allRecords.filter(r => r.type !== 'absent' && r.type !== 'late').length;
+
+  const TABS = [
+    { id:'records',   label:'Leave Records'  },
+    { id:'sil',       label:'SIL Ledger'     },
+    { id:'tardiness', label:'Tardiness Log'  },
+  ];
+
+  return (
+    <div className="p-6 space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Attendance & Leave</h1>
+          <p className="text-sm text-gray-500">All leave types · SIL tracking · Tardiness management</p>
+        </div>
+        <button onClick={() => setShowForm(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-orange-700 text-white rounded-xl text-sm font-medium hover:bg-orange-800 shadow-sm">
+          <Plus size={16}/> Log Leave / Absence
+        </button>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard icon={FileText}    label="Leave Records"   value={totalLeave}                color="indigo"/>
+        <StatCard icon={Clock}       label="Tardiness Records" value={tardinessRecords.length} color="amber"/>
+        <StatCard icon={AlertCircle} label="Absent Today"    value={todayAbsent}               color="pink"/>
+        <StatCard icon={Timer}       label="Late Today"      value={todayLate}                 color="amber"/>
+      </div>
+
+      {/* Tabs */}
+      <div className="border-b border-gray-200">
+        <div className="flex gap-0">
+          {TABS.map(tab => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+              className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === tab.id
+                  ? 'border-orange-600 text-orange-700'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+              {tab.label}
+              {tab.id === 'sil' && (
+                <span className="ml-1.5 text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full font-semibold">SIL</span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Tab content */}
+      {activeTab === 'records' && (
+        <LeaveRecordsTab
+          records={filteredRecords} empMap={empMap} employees={state.employees}
+          search={search} setSearch={setSearch}
+          typeFilter={typeFilter} setTypeFilter={setTypeFilter}
+          empFilter={empFilter}   setEmpFilter={setEmpFilter}
+          onDelete={id => { dispatch({ type:'DELETE_ATTENDANCE', id }); toast(dispatch,'Record removed','warning'); }}
+          onApprove={id => { dispatch({ type:'UPDATE_ATTENDANCE_STATUS', id, status:'Approved' }); toast(dispatch,'Record approved'); }}
+          onReject={id => { dispatch({ type:'UPDATE_ATTENDANCE_STATUS', id, status:'Pending' }); toast(dispatch,'Record set back to Pending','warning'); }}
+        />
+      )}
+      {activeTab === 'sil' && (
+        <SILLedgerTab employees={state.employees} attendance={allRecords} todayStr={todayStr}/>
+      )}
+      {activeTab === 'tardiness' && (
+        <TardinessTab records={tardinessRecords} empMap={empMap}
+          onDelete={id => { dispatch({ type:'DELETE_ATTENDANCE', id }); toast(dispatch,'Record removed','warning'); }}/>
+      )}
+
+      {/* Form modal */}
+      <Modal isOpen={showForm} onClose={() => setShowForm(false)} title="Log Leave / Attendance" wide>
+        <LeaveForm
+          employees={state.employees}
+          attendance={allRecords}
+          onSave={rec => {
+            dispatch({ type:'ADD_ATTENDANCE', payload:{ id:uid(), ...rec } });
+            toast(dispatch, 'Record saved');
+            setShowForm(false);
+          }}
+          onClose={() => setShowForm(false)}
+        />
       </Modal>
     </div>
   );
@@ -1468,7 +3171,9 @@ function PayrollHistory() {
   const empMap = useMemo(() => Object.fromEntries(state.employees.map(e=>[e.id,e])), [state.employees]);
 
   const filteredRuns = useMemo(() =>
-    state.payrollRuns.filter(r => !runFilter || runFilter==='all' || r.id===runFilter)
+    state.payrollRuns
+      .filter(r => !runFilter || runFilter==='all' || r.id===runFilter)
+      .sort((a, b) => b.date.localeCompare(a.date))
   , [state.payrollRuns, runFilter]);
 
   return (
@@ -1566,7 +3271,7 @@ function PayrollHistory() {
                             <td className="px-4 py-3 font-bold text-orange-700">{fmt(ps.netPay)}</td>
                             <td className="px-4 py-3"><Badge status={ps.status}/></td>
                             <td className="px-4 py-3">
-                              <button onClick={()=>setViewPayslip({payslip:ps,emp,period:run.period,releaseDateLabel:run.releaseDateLabel,coverage:run.coverage,startDate:run.startDate,endDate:run.date})}
+                              <button onClick={()=>setViewPayslip({payslip:ps,emp,period:run.period,releaseDateLabel:run.releaseDateLabel,coverage:run.coverage,startDate:run.startDate,endDate:run.date,runId:run.id})}
                                 className="p-1.5 rounded-lg hover:bg-orange-50 text-orange-700"><Eye size={14}/></button>
                             </td>
                           </tr>
@@ -1594,9 +3299,10 @@ function PayrollHistory() {
             employee={viewPayslip.emp}
             runPeriod={viewPayslip.period}
             releaseDateLabel={viewPayslip.releaseDateLabel}
-            cutOffDates={viewPayslip.coverage}
+            cutOffStartDate={viewPayslip.startDate}
             otEntries={state.otEntries.filter(e =>
-              e.date >= (viewPayslip.startDate || '') && e.date <= (viewPayslip.endDate || '')
+              e.includedInPayrollId === viewPayslip.runId &&
+              e.employeeId === viewPayslip.emp?.id
             )}
             onClose={()=>setViewPayslip(null)}
           />
@@ -1914,7 +3620,7 @@ function OTEntryForm({ initial, onSave, onClose, employees }) {
   useEffect(() => {
     if (!form.employeeId || initial) return;
     const emp = employees.find(e => e.id === form.employeeId);
-    if (emp && emp.salary > 0) f('dailyRate', (emp.salary / 22).toFixed(2));
+    if (emp && emp.salary > 0) f('dailyRate', (emp.salary / 26).toFixed(2));
   }, [form.employeeId]);
 
   // Auto-suggest OT type based on date (holiday > rest day > regular)
@@ -2026,7 +3732,7 @@ function OTEntryForm({ initial, onSave, onClose, employees }) {
 
         {/* Daily Rate */}
         <div className="col-span-2">
-          <label className={labelCls}>Daily Rate (PHP) — auto-filled from employee salary ÷ 22</label>
+          <label className={labelCls}>Daily Rate (PHP) — auto-filled from employee salary ÷ 26</label>
           <input type="number" value={form.dailyRate} onChange={e=>f('dailyRate',e.target.value)}
             placeholder="e.g. 1136.36" className={fieldCls}/>
           {errs.dailyRate && <p className="text-xs text-red-500 mt-1">{errs.dailyRate}</p>}
@@ -2101,7 +3807,7 @@ function OTBatchForm({ initialEmpId, onSaveAll, onClose, employees }) {
   const [submitted, setSubmitted] = useState(false);
 
   const emp       = employees.find(e => e.id === empId);
-  const dailyRate = emp ? emp.salary / 22 : 0;
+  const dailyRate = emp ? emp.salary / 26 : 0;
 
   const addRow    = () => setRows(r => [...r, makeRow()]);
   const removeRow = (id) => setRows(r => r.filter(x => x.id !== id));
@@ -2134,7 +3840,7 @@ function OTBatchForm({ initialEmpId, onSaveAll, onClose, employees }) {
     setSubmitted(true);
     if (!empId) return;
     const entries = rows.map((row, i) => ({
-      id: uid(),
+      id:         uid(),
       employeeId: empId,
       date:       row.date,
       otType:     row.otType,
@@ -2144,6 +3850,7 @@ function OTBatchForm({ initialEmpId, onSaveAll, onClose, employees }) {
       hours:      computed[i].hours,
       pay:        computed[i].pay,
       hasND:      computed[i].hours.ndHours > 0,
+      status:     'Pending',  // Requires HR approval before payroll inclusion
     })).filter((_, i) => computed[i].hasOT);
     if (!entries.length) return;
     onSaveAll(entries);
@@ -2173,7 +3880,7 @@ function OTBatchForm({ initialEmpId, onSaveAll, onClose, employees }) {
           <CreditCard size={14}/>
           <span>Daily Rate: <strong>₱{dailyRate.toFixed(2)}</strong></span>
           <span className="text-orange-400">·</span>
-          <span className="text-orange-600">₱{emp.salary.toLocaleString()} salary ÷ 22 working days</span>
+          <span className="text-orange-600">₱{emp.salary.toLocaleString()} salary ÷ 26 working days</span>
         </div>
       )}
 
@@ -2331,9 +4038,12 @@ function OTProcessing() {
   const empMap    = useMemo(() => Object.fromEntries(state.employees.map(e=>[e.id,e])), [state.employees]);
   const yearOpts  = Array.from({ length:5 }, (_,i) => now.getFullYear() - 1 + i);
 
-  // All entries in cut-off window
+  // All entries in cut-off window OR carry-forwarded to this cut-off
   const coEntries = useMemo(() =>
-    state.otEntries.filter(e => e.date >= activeCO.startDate && e.date <= activeCO.endDate),
+    state.otEntries.filter(e =>
+      (e.date >= activeCO.startDate && e.date <= activeCO.endDate) ||
+      e.assignedCutOffStart === activeCO.startDate
+    ),
     [state.otEntries, activeCO]
   );
 
@@ -2370,7 +4080,8 @@ function OTProcessing() {
         ndPay:   acc.ndPay   + e.pay.ndPay,
         total:   acc.total   + e.pay.total,
         count:   acc.count   + 1,
-      }), { otHours:0, ndHours:0, otPay:0, ndPay:0, total:0, count:0 });
+        pending: acc.pending + ((!e.status || e.status === 'Pending') ? 1 : 0),
+      }), { otHours:0, ndHours:0, otPay:0, ndPay:0, total:0, count:0, pending:0 });
     });
     return m;
   }, [byEmployee]);
@@ -2411,10 +4122,27 @@ function OTProcessing() {
             {' · '}{activeCO.coverage}
           </p>
         </div>
-        <button onClick={() => setBatchEmpId('')}
-          className="flex items-center gap-2 px-4 py-2 bg-orange-700 text-white rounded-xl text-sm font-medium hover:bg-orange-800 shadow-sm">
-          <Plus size={16}/> Add OT Entry
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Pending count pill */}
+          {coEntries.filter(e => !e.status || e.status === 'Pending').length > 0 && (
+            <button
+              onClick={() => {
+                const pendingIds = coEntries
+                  .filter(e => (!e.status || e.status === 'Pending') && !e.includedInPayrollId)
+                  .map(e => e.id);
+                pendingIds.forEach(id => dispatch({ type:'UPDATE_OT_STATUS', id, status:'Approved' }));
+                toast(dispatch, `${pendingIds.length} OT ${pendingIds.length === 1 ? 'entry' : 'entries'} approved`);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-100 text-yellow-800 rounded-xl text-xs font-semibold hover:bg-yellow-200 border border-yellow-200">
+              <AlertCircle size={13}/>
+              {coEntries.filter(e => !e.status || e.status === 'Pending').length} Pending — Approve All
+            </button>
+          )}
+          <button onClick={() => setBatchEmpId('')}
+            className="flex items-center gap-2 px-4 py-2 bg-orange-700 text-white rounded-xl text-sm font-medium hover:bg-orange-800 shadow-sm">
+            <Plus size={16}/> Add OT Entry
+          </button>
+        </div>
       </div>
 
       {/* ── Cut-off selector ── */}
@@ -2495,6 +4223,10 @@ function OTProcessing() {
                         <span className="text-gray-300">·</span>
                         <span className="text-gray-500">🌙 <span className="font-medium text-orange-600">{totals.ndHours.toFixed(2)} hrs</span></span>
                       </>}
+                      {totals.pending > 0 && <>
+                        <span className="text-gray-300">·</span>
+                        <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-semibold">{totals.pending} pending</span>
+                      </>}
                     </div>
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0">
@@ -2516,19 +4248,33 @@ function OTProcessing() {
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
-                            {['Date','Day / Holiday','OT Type','Time In','Time Out','OT Hrs','🌙 ND','OT Pay','ND Pay','Total',''].map(h=>(
+                            {['Date','Day / Holiday','OT Type','Time In','Time Out','OT Hrs','🌙 ND','OT Pay','ND Pay','Total','Status',''].map(h=>(
                               <th key={h} className="px-4 py-2.5 text-left font-medium whitespace-nowrap">{h}</th>
                             ))}
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50">
                           {entries.map(entry => {
-                            const otType  = OT_TYPES.find(t => t.id === entry.otType);
-                            const holiday = PH_HOLIDAYS[entry.date];
-                            const dayInfo = entry.hours?.dayInfo || getDaySchedule(entry.date);
+                            const otType      = OT_TYPES.find(t => t.id === entry.otType);
+                            const holiday     = PH_HOLIDAYS[entry.date];
+                            const dayInfo     = entry.hours?.dayInfo || getDaySchedule(entry.date);
+                            const entryStatus = entry.status || 'Pending';
+                            const isApproved  = entryStatus === 'Approved';
+                            const isIncluded  = !!entry.includedInPayrollId;
+                            // Entry is from a previous cut-off but assigned/carried forward to this one
+                            const isCarryFwd  = entry.assignedCutOffStart === activeCO.startDate && entry.date < activeCO.startDate;
                             return (
-                              <tr key={entry.id} className="hover:bg-gray-50/50 transition-colors">
-                                <td className="px-4 py-3 text-gray-600 whitespace-nowrap font-medium">{fmtDate(entry.date)}</td>
+                              <tr key={entry.id} className={`hover:bg-gray-50/50 transition-colors ${isIncluded ? 'opacity-60' : ''}`}>
+                                <td className="px-4 py-3 text-gray-600 whitespace-nowrap font-medium">
+                                  <div className="flex flex-col gap-0.5">
+                                    {fmtDate(entry.date)}
+                                    {isCarryFwd && (
+                                      <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-semibold whitespace-nowrap">
+                                        ↩ prev. cut-off
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
                                 <td className="px-4 py-3">
                                   <div className="flex flex-col gap-0.5">
                                     <span className={`text-xs font-medium ${dayInfo.isRestDay ? 'text-orange-600' : 'text-gray-600'}`}>
@@ -2558,10 +4304,51 @@ function OTProcessing() {
                                   {entry.pay.ndPay > 0 ? `+${fmt(entry.pay.ndPay)}` : <span className="text-gray-300">—</span>}
                                 </td>
                                 <td className="px-4 py-3 font-bold text-orange-700 whitespace-nowrap">+{fmt(entry.pay.total)}</td>
+
+                                {/* Status column */}
                                 <td className="px-4 py-3">
-                                  <div className="flex gap-1">
-                                    <button onClick={()=>setEditing(entry)} className="p-1.5 rounded-lg hover:bg-orange-50 text-orange-400 hover:text-orange-700"><Edit2 size={13}/></button>
-                                    <button onClick={()=>setDelConfirm(entry)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500"><Trash2 size={13}/></button>
+                                  <div className="flex flex-col gap-1">
+                                    <Badge status={entryStatus}/>
+                                    {isIncluded && (
+                                      <span className="text-[10px] text-gray-400 whitespace-nowrap">✓ In Payroll</span>
+                                    )}
+                                  </div>
+                                </td>
+
+                                {/* Actions */}
+                                <td className="px-4 py-3">
+                                  <div className="flex flex-col gap-1">
+                                    {!isIncluded && (
+                                      <div className="flex gap-1">
+                                        {!isApproved && (
+                                          <button
+                                            onClick={() => dispatch({ type:'UPDATE_OT_STATUS', id:entry.id, status:'Approved' })}
+                                            title="Approve"
+                                            className="flex items-center gap-0.5 px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-xs font-medium">
+                                            <Check size={11}/> Approve
+                                          </button>
+                                        )}
+                                        {isApproved && (
+                                          <button
+                                            onClick={() => dispatch({ type:'UPDATE_OT_STATUS', id:entry.id, status:'Pending' })}
+                                            title="Revoke Approval"
+                                            className="flex items-center gap-0.5 px-2 py-1 rounded-lg bg-yellow-50 text-yellow-700 hover:bg-yellow-100 text-xs font-medium">
+                                            <X size={11}/> Revoke
+                                          </button>
+                                        )}
+                                        <button onClick={()=>setEditing(entry)} className="p-1.5 rounded-lg hover:bg-orange-50 text-orange-400 hover:text-orange-700"><Edit2 size={13}/></button>
+                                        <button onClick={()=>setDelConfirm(entry)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500"><Trash2 size={13}/></button>
+                                      </div>
+                                    )}
+                                    {/* Carry-forward: assign past-cut-off Approved entry to current cut-off */}
+                                    {!isIncluded && isApproved && entry.date < activeCO.startDate && !isCarryFwd && (
+                                      <button
+                                        onClick={() => dispatch({ type:'UPDATE_OT_STATUS', id:entry.id, status:'Approved', assignedCutOffStart: activeCO.startDate })}
+                                        title="Credit in current cut-off"
+                                        className="flex items-center gap-0.5 px-2 py-1 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 text-xs font-medium whitespace-nowrap">
+                                        ↩ Assign to this cut-off
+                                      </button>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
@@ -2577,7 +4364,7 @@ function OTProcessing() {
                             <td className="px-4 py-2.5 text-emerald-600">+{fmt(totals.otPay)}</td>
                             <td className="px-4 py-2.5 text-emerald-600">{totals.ndPay > 0 ? `+${fmt(totals.ndPay)}` : '—'}</td>
                             <td className="px-4 py-2.5 text-orange-800">+{fmt(totals.total)}</td>
-                            <td></td>
+                            <td></td><td></td>
                           </tr>
                         </tfoot>
                       </table>
@@ -2653,9 +4440,10 @@ function OTProcessing() {
 const NAV_ITEMS = [
   { id:'dashboard',   label:'Dashboard',        icon:Home        },
   { id:'employees',   label:'Employees',         icon:Users       },
-  { id:'payroll',     label:'Run Payroll',       icon:DollarSign  },
   { id:'attendance',  label:'Attendance & Leave',icon:Clock       },
   { id:'ot',          label:'OT Processing',     icon:Timer       },
+  { id:'payroll',     label:'Run Payroll',       icon:DollarSign  },
+  { id:'finalpay',    label:'Final Pay',         icon:Banknote    },
   { id:'history',     label:'Payroll History',   icon:History     },
   { id:'reports',     label:'Reports',           icon:BarChart2   },
 ];
@@ -2714,6 +4502,20 @@ export default function PayrollApp() {
   const [activePage, setActivePage] = useState('dashboard');
   const [collapsed, setCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const notifRef = useRef(null);
+  const notifications = useNotifications(state);
+
+  // Close notification panel when clicking outside
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (notifRef.current && !notifRef.current.contains(e.target)) {
+        setNotifOpen(false);
+      }
+    }
+    if (notifOpen) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [notifOpen]);
 
   const PAGE_MAP = {
     dashboard:  <Dashboard/>,
@@ -2722,6 +4524,7 @@ export default function PayrollApp() {
     attendance: <AttendanceLeave/>,
     ot:         <OTProcessing/>,
     history:    <PayrollHistory/>,
+    finalpay:   <FinalPayPage/>,
     reports:    <Reports/>,
   };
 
@@ -2776,12 +4579,26 @@ export default function PayrollApp() {
               <span className="font-medium text-gray-800">{currentNav?.label}</span>
             </div>
             <div className="ml-auto flex items-center gap-3">
-              <div className="relative">
-                <Bell size={18} className="text-gray-400"/>
-                {state.attendance.length > 0 && (
-                  <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-red-500 rounded-full text-white text-[8px] flex items-center justify-center">
-                    {state.attendance.length}
-                  </span>
+              {/* Notification Bell */}
+              <div className="relative" ref={notifRef}>
+                <button
+                  onClick={() => setNotifOpen(o => !o)}
+                  className="relative p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                  title="Notifications"
+                >
+                  <Bell size={18} className={notifications.length > 0 ? 'text-orange-500' : 'text-gray-400'}/>
+                  {notifications.length > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 bg-red-500 rounded-full text-white text-[9px] font-bold flex items-center justify-center">
+                      {notifications.length > 9 ? '9+' : notifications.length}
+                    </span>
+                  )}
+                </button>
+                {notifOpen && (
+                  <NotificationPanel
+                    notifications={notifications}
+                    onNavigate={setActivePage}
+                    onClose={() => setNotifOpen(false)}
+                  />
                 )}
               </div>
               <div className="flex items-center gap-2">
