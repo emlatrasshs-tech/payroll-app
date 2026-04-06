@@ -4340,15 +4340,6 @@ function OTProcessing() {
                                         <button onClick={()=>setDelConfirm(entry)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500"><Trash2 size={13}/></button>
                                       </div>
                                     )}
-                                    {/* Carry-forward: assign past-cut-off Approved entry to current cut-off */}
-                                    {!isIncluded && isApproved && entry.date < activeCO.startDate && !isCarryFwd && (
-                                      <button
-                                        onClick={() => dispatch({ type:'UPDATE_OT_STATUS', id:entry.id, status:'Approved', assignedCutOffStart: activeCO.startDate })}
-                                        title="Credit in current cut-off"
-                                        className="flex items-center gap-0.5 px-2 py-1 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 text-xs font-medium whitespace-nowrap">
-                                        ↩ Assign to this cut-off
-                                      </button>
-                                    )}
                                   </div>
                                 </td>
                               </tr>
@@ -4397,6 +4388,90 @@ function OTProcessing() {
           </div>
         </div>
       )}
+
+      {/* ── Carry Forward Panel ── */}
+      {/* Shows ALL approved, unincluded OT from any past cut-off, so HR can pull them into the current period */}
+      {(() => {
+        const pastUnpaid = state.otEntries.filter(e =>
+          e.status === 'Approved' &&
+          !e.includedInPayrollId &&
+          e.date < activeCO.startDate &&
+          e.assignedCutOffStart !== activeCO.startDate   // not already assigned here
+        );
+        if (!pastUnpaid.length) return null;
+        return (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-amber-200 bg-amber-100/60">
+              <div className="flex items-center gap-2 text-amber-800">
+                <AlertCircle size={15}/>
+                <span className="font-semibold text-sm">
+                  Carry Forward — {pastUnpaid.length} approved OT {pastUnpaid.length === 1 ? 'entry' : 'entries'} from past cut-offs
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  pastUnpaid.forEach(e =>
+                    dispatch({ type:'UPDATE_OT_STATUS', id:e.id, status:'Approved', assignedCutOffStart: activeCO.startDate })
+                  );
+                  toast(dispatch, `${pastUnpaid.length} OT ${pastUnpaid.length === 1 ? 'entry' : 'entries'} assigned to ${activeCO.label}`);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-700 text-white rounded-lg text-xs font-semibold hover:bg-amber-800">
+                ↩ Assign All to {activeCO.label}
+              </button>
+            </div>
+            {/* Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-amber-50 text-xs text-amber-700 uppercase tracking-wide">
+                    {['Employee','Original Date','OT Type','OT Hrs','Total Pay',''].map(h => (
+                      <th key={h} className="px-4 py-2.5 text-left font-medium whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-amber-100">
+                  {pastUnpaid.map(entry => {
+                    const emp     = empMap[entry.employeeId];
+                    const otType  = OT_TYPES.find(t => t.id === entry.otType);
+                    return (
+                      <tr key={entry.id} className="hover:bg-amber-50/70">
+                        <td className="px-4 py-3 font-medium text-gray-800">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
+                              style={{ background: DEPT_COLORS[emp?.dept] || '#c2410c' }}>
+                              {emp?.name?.charAt(0) || '?'}
+                            </div>
+                            {emp?.name || entry.employeeId}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{fmtDate(entry.date)}</td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${otType?.color || 'bg-gray-100 text-gray-600'}`}>
+                            {otType?.label || entry.otType}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-medium text-orange-700">{entry.hours?.otHours?.toFixed(2) || '—'}</td>
+                        <td className="px-4 py-3 font-bold text-orange-700">+{fmt(entry.pay?.total || 0)}</td>
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() => {
+                              dispatch({ type:'UPDATE_OT_STATUS', id:entry.id, status:'Approved', assignedCutOffStart: activeCO.startDate });
+                              toast(dispatch, `OT entry assigned to ${activeCO.label}`);
+                            }}
+                            className="flex items-center gap-1 px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-semibold hover:bg-amber-700 whitespace-nowrap">
+                            ↩ Assign to {activeCO.label}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Modals ── */}
       {/* Batch Add / multi-date form */}
