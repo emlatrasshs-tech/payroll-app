@@ -68,16 +68,16 @@ function calcTax(taxable) {
   return 200833.33 + (taxable - 666667) * 0.35;
 }
 
-function calcGovContribs(monthlySalary) {
-  const sss      = Math.min(monthlySalary * 0.045, 900);
-  const philHealth = Math.min(Math.max(monthlySalary * 0.025, 250), 2500);
-  const pagIbig  = monthlySalary <= 1500 ? monthlySalary * 0.01 : Math.min(monthlySalary * 0.02, 200);
+function calcGovContribs(monthlySalary, s = DEFAULT_DEDUCTIONS) {
+  const sss        = Math.min(monthlySalary * (s.sssRate / 100), s.sssCap);
+  const philHealth = Math.min(Math.max(monthlySalary * (s.philHealthRate / 100), s.philHealthMin), s.philHealthCap);
+  const pagIbig    = monthlySalary <= 1500 ? monthlySalary * 0.01 : Math.min(monthlySalary * (s.pagIbigRate / 100), s.pagIbigCap);
   return { sss, philHealth, pagIbig };
 }
 
 // cutOff: 1 = basic half-salary only, no allowance, no gov deductions
 //         2 = basic half-salary + allowance, apply gov deductions (no tax per policy)
-function calcPayslip(emp, periodDays = 11, absences = 0, lateMinutes = 0, overtime = 0, cutOff = 2, reimbursement = 0, otPayDirect = 0) {
+function calcPayslip(emp, periodDays = 11, absences = 0, lateMinutes = 0, overtime = 0, cutOff = 2, reimbursement = 0, otPayDirect = 0, deductionSettings = DEFAULT_DEDUCTIONS) {
   const monthlySalary = emp.salary || 0;
   const halfSalary    = monthlySalary / 2;
   const allowance     = cutOff === 2 ? (emp.allowance || 0) : 0;
@@ -94,7 +94,7 @@ function calcPayslip(emp, periodDays = 11, absences = 0, lateMinutes = 0, overti
   // Use manual overrides if set, otherwise auto-compute from salary brackets
   let sss = 0, philHealth = 0, pagIbig = 0;
   if (cutOff === 2) {
-    const gov  = calcGovContribs(monthlySalary);
+    const gov  = calcGovContribs(monthlySalary, deductionSettings);
     sss        = emp.sssContribOverride   != null && emp.sssContribOverride   !== '' ? +emp.sssContribOverride   : gov.sss;
     philHealth = emp.philHealthContribOverride != null && emp.philHealthContribOverride !== '' ? +emp.philHealthContribOverride : gov.philHealth;
     pagIbig    = emp.hdmfContribOverride  != null && emp.hdmfContribOverride  !== '' ? +emp.hdmfContribOverride  : gov.pagIbig;
@@ -549,13 +549,24 @@ const SEED_ATTENDANCE = SEED_EMPLOYEES.slice(0,5).map(emp => ({
 // ─────────────────────────────────────────────────────────────
 // STATE MANAGEMENT
 // ─────────────────────────────────────────────────────────────
+const DEFAULT_DEDUCTIONS = {
+  sssRate:        4.5,   // %
+  sssCap:         900,   // max PHP
+  philHealthRate: 2.5,   // %
+  philHealthMin:  250,   // min PHP
+  philHealthCap:  2500,  // max PHP
+  pagIbigRate:    2.0,   // %
+  pagIbigCap:     200,   // max PHP
+};
+
 const initialState = {
-  employees:       SEED_EMPLOYEES,
-  payrollRuns:     SEED_RUNS,
-  attendance:      SEED_ATTENDANCE,
-  otEntries:       [],
-  finalPayRecords: [],
-  toasts:          [],
+  employees:         SEED_EMPLOYEES,
+  payrollRuns:       SEED_RUNS,
+  attendance:        SEED_ATTENDANCE,
+  otEntries:         [],
+  finalPayRecords:   [],
+  toasts:            [],
+  deductionSettings: DEFAULT_DEDUCTIONS,
 };
 
 function reducer(state, action) {
@@ -626,6 +637,8 @@ function reducer(state, action) {
       return { ...state, toasts: [...state.toasts, { id: uid(), ...action.payload }] };
     case 'REMOVE_TOAST':
       return { ...state, toasts: state.toasts.filter(t => t.id !== action.id) };
+    case 'UPDATE_DEDUCTION_SETTINGS':
+      return { ...state, deductionSettings: { ...state.deductionSettings, ...action.payload } };
     default: return state;
   }
 }
@@ -4545,7 +4558,123 @@ const NAV_ITEMS = [
   { id:'finalpay',    label:'Final Pay',         icon:Banknote    },
   { id:'history',     label:'Payroll History',   icon:History     },
   { id:'reports',     label:'Reports',           icon:BarChart2   },
+  { id:'settings',    label:'Settings',          icon:ShieldCheck },
 ];
+
+// ─────────────────────────────────────────────────────────────
+// SETTINGS PAGE
+// ─────────────────────────────────────────────────────────────
+function Settings() {
+  const { state, dispatch } = useApp();
+  const s = state.deductionSettings || DEFAULT_DEDUCTIONS;
+  const [form, setForm] = useState({ ...s });
+  const [saved, setSaved] = useState(false);
+
+  function set(key, val) { setForm(f => ({ ...f, [key]: val })); setSaved(false); }
+
+  function handleSave(e) {
+    e.preventDefault();
+    const parsed = Object.fromEntries(Object.entries(form).map(([k,v]) => [k, parseFloat(v) || 0]));
+    dispatch({ type: 'UPDATE_DEDUCTION_SETTINGS', payload: parsed });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  }
+
+  function handleReset() {
+    setForm({ ...DEFAULT_DEDUCTIONS });
+    dispatch({ type: 'UPDATE_DEDUCTION_SETTINGS', payload: DEFAULT_DEDUCTIONS });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  }
+
+  const Field = ({ label, value, onChange, suffix, hint }) => (
+    <div>
+      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">{label}</label>
+      <div className="relative">
+        <input
+          type="number" step="0.01" min="0" value={value} onChange={e => onChange(e.target.value)}
+          className="w-full px-4 py-2.5 pr-14 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"
+        />
+        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-medium">{suffix}</span>
+      </div>
+      {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
+    </div>
+  );
+
+  return (
+    <div className="p-6 max-w-2xl mx-auto space-y-6">
+      <div>
+        <h2 className="text-xl font-bold text-gray-800">Settings</h2>
+        <p className="text-sm text-gray-400 mt-0.5">Manage mandatory government deduction rates and caps</p>
+      </div>
+
+      <form onSubmit={handleSave} className="space-y-5">
+        {/* SSS */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
+          <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
+            <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
+              <ShieldCheck size={15} className="text-blue-600"/>
+            </div>
+            <h3 className="font-semibold text-gray-800">SSS</h3>
+            <span className="text-xs text-gray-400">Social Security System</span>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Employee Rate" value={form.sssRate} onChange={v => set('sssRate', v)} suffix="%" hint="% of monthly salary"/>
+            <Field label="Maximum Cap" value={form.sssCap} onChange={v => set('sssCap', v)} suffix="₱" hint="Max deduction per month"/>
+          </div>
+        </div>
+
+        {/* PhilHealth */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
+          <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
+            <div className="w-8 h-8 rounded-lg bg-green-50 flex items-center justify-center">
+              <ShieldCheck size={15} className="text-green-600"/>
+            </div>
+            <h3 className="font-semibold text-gray-800">PhilHealth</h3>
+            <span className="text-xs text-gray-400">Philippine Health Insurance</span>
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <Field label="Employee Rate" value={form.philHealthRate} onChange={v => set('philHealthRate', v)} suffix="%" hint="% of monthly salary"/>
+            <Field label="Minimum" value={form.philHealthMin} onChange={v => set('philHealthMin', v)} suffix="₱" hint="Min deduction"/>
+            <Field label="Maximum Cap" value={form.philHealthCap} onChange={v => set('philHealthCap', v)} suffix="₱" hint="Max deduction"/>
+          </div>
+        </div>
+
+        {/* Pag-IBIG */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
+          <div className="flex items-center gap-2 pb-2 border-b border-gray-100">
+            <div className="w-8 h-8 rounded-lg bg-orange-50 flex items-center justify-center">
+              <ShieldCheck size={15} className="text-orange-600"/>
+            </div>
+            <h3 className="font-semibold text-gray-800">Pag-IBIG</h3>
+            <span className="text-xs text-gray-400">Home Development Mutual Fund</span>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Employee Rate" value={form.pagIbigRate} onChange={v => set('pagIbigRate', v)} suffix="%" hint="% of monthly salary"/>
+            <Field label="Maximum Cap" value={form.pagIbigCap} onChange={v => set('pagIbigCap', v)} suffix="₱" hint="Max deduction per month"/>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-3">
+          <button type="submit"
+            className="flex items-center gap-2 px-5 py-2.5 bg-orange-700 hover:bg-orange-800 text-white rounded-xl text-sm font-semibold transition">
+            <Check size={15}/> Save Changes
+          </button>
+          <button type="button" onClick={handleReset}
+            className="px-5 py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 transition">
+            Reset to Defaults
+          </button>
+          {saved && (
+            <span className="flex items-center gap-1.5 text-sm text-green-600 font-medium">
+              <Check size={14}/> Saved!
+            </span>
+          )}
+        </div>
+      </form>
+    </div>
+  );
+}
 
 function Sidebar({ active, setActive, collapsed, setCollapsed }) {
   return (
@@ -4911,6 +5040,7 @@ export default function PayrollApp() {
     history:    <PayrollHistory/>,
     finalpay:   <FinalPayPage/>,
     reports:    <Reports/>,
+    settings:   <Settings/>,
   };
 
   const currentNav = NAV_ITEMS.find(n=>n.id===activePage);
