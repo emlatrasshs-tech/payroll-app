@@ -493,20 +493,20 @@ function calcOTPay(dailyRate, hours, otTypeId) {
 // ─────────────────────────────────────────────────────────────
 // ── Dragon AI Media Inc — Active Employees (sourced from Dragon AI Database.xlsx) ──
 const SEED_EMPLOYEES = [
-  { id:'E001', name:'Maverick Avien Acuario',       dept:'Events',          position:'Events and Logistics Support Coordinator', type:'Probationary', salary:25000, allowance:200, hireDate:'2025-10-08', taxEx:0, bank:'8029', isHourly:false },
-  { id:'E002', name:'Nikka Rose Barcelon',           dept:'Social Media',    position:'Graphic & Social Media Specialist',        type:'Regular',      salary:28000, allowance:0,   hireDate:'2024-10-28', taxEx:0, bank:'2007', isHourly:false },
-  { id:'E003', name:'Yasmin May Cai',                dept:'Events',          position:'Event Coordinator Assistant',              type:'Probationary', salary:40000, allowance:0,   hireDate:'2026-02-18', taxEx:0, bank:'8726', isHourly:false },
-  { id:'E004', name:'Eliney Crisse Nicole Castillon',dept:'Events',          position:'Account Manager',                          type:'Probationary', salary:45000, allowance:0,   hireDate:'2025-06-09', taxEx:0, bank:'3775', isHourly:false },
-  { id:'E005', name:'Raphael Oliver Cobarrubias',    dept:'Operations',      position:'Photographer',                             type:'Regular',      salary:33000, allowance:0,   hireDate:'2022-11-09', taxEx:0, bank:'0943', isHourly:false },
-  { id:'E006', name:'Hazel Marie De Jesus',          dept:'Events',          position:'Events and Account Manager',               type:'Regular',      salary:48000, allowance:0,   hireDate:'2024-11-18', taxEx:0, bank:'2752', isHourly:false },
-  { id:'E007', name:'Denise Diocena',                dept:'Social Media',    position:'Marketing and Creative Assistant',         type:'Regular',      salary:22000, allowance:0,   hireDate:'2024-11-12', taxEx:0, bank:'4539', isHourly:false },
-  { id:'E008', name:'El Marie Latras',               dept:'Human Resources', position:'HR Assistant',                             type:'Regular',      salary:23500, allowance:0,   hireDate:'2024-10-01', taxEx:0, bank:'3244', isHourly:false },
-  { id:'E009', name:'Denise Rosalind Lim',           dept:'Events',          position:'TBD',                                      type:'Regular',      salary:0,     allowance:0,   hireDate:'2017-01-30', taxEx:0, bank:'1399', isHourly:false },
-  { id:'E010', name:'Paolo Luis Navarro',             dept:'Events',          position:'Account Manager',                          type:'Probationary', salary:35000, allowance:0,   hireDate:'2026-03-16', taxEx:0, bank:'3920', isHourly:false },
-  { id:'E011', name:'John Maynard Pabelona',          dept:'Events',          position:'Events and Logistics Support Coordinator', type:'Regular',      salary:31000, allowance:180, hireDate:'2025-07-29', taxEx:0, bank:'7783', isHourly:false },
-  { id:'E012', name:'Mark Yuri Patawaran',            dept:'Events',          position:'Events and Logistics Support Coordinator', type:'Regular',      salary:31000, allowance:180, hireDate:'2025-07-07', taxEx:0, bank:'0416', isHourly:false },
-  { id:'E013', name:'Lexie Joan Remetio',             dept:'Events',          position:'Event Assistant',                          type:'Probationary', salary:26500, allowance:0,   hireDate:'2026-03-02', taxEx:0, bank:'1824', isHourly:false },
-  { id:'E014', name:'Rolando Sabanal',                dept:'Operations',      position:'Executive Driver',                         type:'Regular',      salary:32000, allowance:180, hireDate:'2025-03-31', taxEx:0, bank:'7019', isHourly:false },
+  { id:'E001', name:'ACUARIO, MAVERICK AVIEN',        firstName:'MAVERICK', middleName:'AVIEN',   lastName:'ACUARIO',    dept:'Events',          position:'Events and Logistics Support Coordinator', type:'Probationary', salary:25000, allowance:200, hireDate:'2025-10-08', taxEx:0, bank:'8029', isHourly:false },
+  { id:'E002', name:'BARCELON, NIKKA ROSE',            firstName:'NIKKA',    middleName:'ROSE',    lastName:'BARCELON',   dept:'Social Media',    position:'Graphic & Social Media Specialist',        type:'Regular',      salary:28000, allowance:0,   hireDate:'2024-10-28', taxEx:0, bank:'2007', isHourly:false },
+  { id:'E003', name:'CAI, YASMIN MAY',                 firstName:'YASMIN',   middleName:'MAY',     lastName:'CAI',        dept:'Events',          position:'Event Coordinator Assistant',              type:'Probationary', salary:40000, allowance:0,   hireDate:'2026-02-18', taxEx:0, bank:'8726', isHourly:false },
+  { id:'E004', name:'CASTILLON, ELINEY CRISSE NICOLE', firstName:'ELINEY',   middleName:'CRISSE NICOLE', lastName:'CASTILLON', dept:'Events',     position:'Account Manager',                          type:'Probationary', salary:45000, allowance:0,   hireDate:'2025-06-09', taxEx:0, bank:'3775', isHourly:false },
+  { id:'E005', name:'COBARRUBIAS, RAPHAEL OLIVER',     firstName:'RAPHAEL',  middleName:'OLIVER',  lastName:'COBARRUBIAS',dept:'Operations',      position:'Photographer',                             type:'Regular',      salary:33000, allowance:0,   hireDate:'2022-11-09', taxEx:0, bank:'0943', isHourly:false },
+  { id:'E006', name:'DE JESUS, HAZEL MARIE',           firstName:'HAZEL',    middleName:'MARIE',   lastName:'DE JESUS',   dept:'Events',          position:'Events and Account Manager',               type:'Regular',      salary:48000, allowance:0,   hireDate:'2024-11-18', taxEx:0, bank:'2752', isHourly:false },
+  { id:'E007', name:'DIOCENA, DENISE',                 firstName:'DENISE',   middleName:'',        lastName:'DIOCENA',    dept:'Social Media',    position:'Marketing and Creative Assistant',         type:'Regular',      salary:22000, allowance:0,   hireDate:'2024-11-12', taxEx:0, bank:'4539', isHourly:false },
+  { id:'E008', name:'LATRAS, EL MARIE',                firstName:'EL',       middleName:'MARIE',   lastName:'LATRAS',     dept:'Human Resources', position:'HR Assistant',                             type:'Regular',      salary:23500, allowance:0,   hireDate:'2024-10-01', taxEx:0, bank:'3244', isHourly:false },
+  { id:'E009', name:'LIM, DENISE ROSALIND',            firstName:'DENISE',   middleName:'ROSALIND',lastName:'LIM',        dept:'Events',          position:'TBD',                                      type:'Regular',      salary:0,     allowance:0,   hireDate:'2017-01-30', taxEx:0, bank:'1399', isHourly:false },
+  { id:'E010', name:'NAVARRO, PAOLO LUIS',             firstName:'PAOLO',    middleName:'LUIS',    lastName:'NAVARRO',    dept:'Events',          position:'Account Manager',                          type:'Probationary', salary:35000, allowance:0,   hireDate:'2026-03-16', taxEx:0, bank:'3920', isHourly:false },
+  { id:'E011', name:'PABELONA, JOHN MAYNARD',          firstName:'JOHN',     middleName:'MAYNARD', lastName:'PABELONA',   dept:'Events',          position:'Events and Logistics Support Coordinator', type:'Regular',      salary:31000, allowance:180, hireDate:'2025-07-29', taxEx:0, bank:'7783', isHourly:false },
+  { id:'E012', name:'PATAWARAN, MARK YURI',            firstName:'MARK',     middleName:'YURI',    lastName:'PATAWARAN',  dept:'Events',          position:'Events and Logistics Support Coordinator', type:'Regular',      salary:31000, allowance:180, hireDate:'2025-07-07', taxEx:0, bank:'0416', isHourly:false },
+  { id:'E013', name:'REMETIO, LEXIE JOAN',             firstName:'LEXIE',    middleName:'JOAN',    lastName:'REMETIO',    dept:'Events',          position:'Event Assistant',                          type:'Probationary', salary:26500, allowance:0,   hireDate:'2026-03-02', taxEx:0, bank:'1824', isHourly:false },
+  { id:'E014', name:'SABANAL, ROLANDO',                firstName:'ROLANDO',  middleName:'',        lastName:'SABANAL',    dept:'Operations',      position:'Executive Driver',                         type:'Regular',      salary:32000, allowance:180, hireDate:'2025-03-31', taxEx:0, bank:'7019', isHourly:false },
 ];
 
 function buildPayslips(employees, periodLabel, dateStr, cutOff = 2) {
@@ -1079,9 +1079,15 @@ function EmployeeForm({ initial, onSave, onClose }) {
 
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
-  // Auto-generate Full Name from split fields
-  const buildFullName = (first, middle, last) =>
-    [first, middle, last].filter(Boolean).join(' ').trim();
+  // Auto-generate Full Name: LASTNAME, FIRSTNAME MIDDLENAME (ALL CAPS)
+  const buildFullName = (first, middle, last) => {
+    const f = first.trim().toUpperCase();
+    const m = middle.trim().toUpperCase();
+    const l = last.trim().toUpperCase();
+    if (!f && !l) return m;
+    const firstMid = [f, m].filter(Boolean).join(' ');
+    return l ? `${l}, ${firstMid}` : firstMid;
+  };
 
   const handleSplitChange = (key, val) => {
     const updated = { ...form, [key]: val };
@@ -1129,18 +1135,18 @@ function EmployeeForm({ initial, onSave, onClose }) {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1.5">First Name <span className="text-red-400">*</span></label>
-                <input value={form.firstName} onChange={e => handleSplitChange('firstName', e.target.value)}
-                  placeholder="e.g. Juan" className={fieldCls}/>
+                <input value={form.firstName} onChange={e => handleSplitChange('firstName', e.target.value.toUpperCase())}
+                  placeholder="e.g. JUAN" className={`${fieldCls} uppercase`}/>
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1.5">Middle Name <span className="text-gray-400 font-normal">(optional)</span></label>
-                <input value={form.middleName} onChange={e => handleSplitChange('middleName', e.target.value)}
-                  placeholder="e.g. Santos" className={fieldCls}/>
+                <input value={form.middleName} onChange={e => handleSplitChange('middleName', e.target.value.toUpperCase())}
+                  placeholder="e.g. SANTOS" className={`${fieldCls} uppercase`}/>
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-600 mb-1.5">Last Name <span className="text-red-400">*</span></label>
-                <input value={form.lastName} onChange={e => handleSplitChange('lastName', e.target.value)}
-                  placeholder="e.g. dela Cruz" className={fieldCls}/>
+                <input value={form.lastName} onChange={e => handleSplitChange('lastName', e.target.value.toUpperCase())}
+                  placeholder="e.g. DELA CRUZ" className={`${fieldCls} uppercase`}/>
               </div>
             </div>
             {/* Full name preview / override */}
@@ -4999,10 +5005,12 @@ function UserMenu({ onChangeCreds, onLogout }) {
 export default function PayrollApp() {
   const [isLoggedIn,     setIsLoggedIn]     = useState(() => sessionStorage.getItem('payroll_auth') === '1');
   const [showChangeCreds, setShowChangeCreds] = useState(false);
+  const STATE_VERSION = 'v2'; // bump this to reset saved state
   const [state, dispatch] = useReducer(reducer, undefined, () => {
     try {
+      const ver   = localStorage.getItem('payroll_state_ver');
       const saved = localStorage.getItem('payroll_state');
-      if (saved) {
+      if (saved && ver === STATE_VERSION) {
         const parsed = JSON.parse(saved);
         return { ...initialState, ...parsed, toasts: [] };
       }
@@ -5021,6 +5029,7 @@ export default function PayrollApp() {
     try {
       const { toasts, ...persist } = state;
       localStorage.setItem('payroll_state', JSON.stringify(persist));
+      localStorage.setItem('payroll_state_ver', STATE_VERSION);
     } catch {}
   }, [state]);
 
