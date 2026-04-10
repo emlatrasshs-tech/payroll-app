@@ -4563,7 +4563,6 @@ const NAV_ITEMS = [
   { id:'finalpay',    label:'Final Pay',         icon:Banknote    },
   { id:'history',     label:'Payroll History',   icon:History     },
   { id:'reports',     label:'Reports',           icon:BarChart2   },
-  { id:'settings',    label:'Settings',          icon:ShieldCheck },
 ];
 
 // ─────────────────────────────────────────────────────────────
@@ -5045,7 +5044,6 @@ export default function PayrollApp() {
     history:    <PayrollHistory/>,
     finalpay:   <FinalPayPage/>,
     reports:    <Reports/>,
-    settings:   <Settings/>,
   };
 
   const currentNav = NAV_ITEMS.find(n=>n.id===activePage);
