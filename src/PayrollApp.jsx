@@ -5005,7 +5005,7 @@ export default function PayrollApp() {
     } catch {}
     return initialState;
   });
-  const [activePage, setActivePage] = useState('dashboard');
+  const [activePage, setActivePage] = useState(() => sessionStorage.getItem('payroll_page') || 'dashboard');
   const [collapsed, setCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -5045,6 +5045,11 @@ export default function PayrollApp() {
 
   const currentNav = NAV_ITEMS.find(n=>n.id===activePage);
 
+  function handleNavigate(page) {
+    sessionStorage.setItem('payroll_page', page);
+    setActivePage(page);
+  }
+
   function handleLogin() {
     sessionStorage.setItem('payroll_auth', '1');
     setIsLoggedIn(true);
@@ -5063,7 +5068,7 @@ export default function PayrollApp() {
       <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
         {/* Desktop Sidebar */}
         <div className="hidden md:flex">
-          <Sidebar active={activePage} setActive={setActivePage} collapsed={collapsed} setCollapsed={setCollapsed}/>
+          <Sidebar active={activePage} setActive={handleNavigate} collapsed={collapsed} setCollapsed={setCollapsed}/>
         </div>
 
         {/* Mobile Sidebar Overlay */}
@@ -5083,7 +5088,7 @@ export default function PayrollApp() {
                   const Icon = item.icon;
                   const isActive = activePage === item.id;
                   return (
-                    <button key={item.id} onClick={()=>{setActivePage(item.id);setMobileMenuOpen(false);}}
+                    <button key={item.id} onClick={()=>{handleNavigate(item.id);setMobileMenuOpen(false);}}
                       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all"
                       style={isActive ? {background:'#c2410c',color:'#fff'} : {color:'#9ca3af'}}>
                       <Icon size={18}/>{item.label}
@@ -5124,7 +5129,7 @@ export default function PayrollApp() {
                 {notifOpen && (
                   <NotificationPanel
                     notifications={notifications}
-                    onNavigate={setActivePage}
+                    onNavigate={handleNavigate}
                     onClose={() => setNotifOpen(false)}
                   />
                 )}
