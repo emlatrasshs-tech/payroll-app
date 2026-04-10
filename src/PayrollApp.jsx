@@ -4038,6 +4038,19 @@ function OTProcessing() {
   const empMap    = useMemo(() => Object.fromEntries(state.employees.map(e=>[e.id,e])), [state.employees]);
   const yearOpts  = Array.from({ length:5 }, (_,i) => now.getFullYear() - 1 + i);
 
+  // Compute next cut-off start date (for "Assign to Next Cut-off" button)
+  const nextCO = useMemo(() => {
+    if (selCutOff === 1) {
+      // next is cutOff2 of same month
+      return schedule.cutOff2;
+    } else {
+      // next is cutOff1 of next month
+      const nm = selMonth === 12 ? 1 : selMonth + 1;
+      const ny = selMonth === 12 ? selYear + 1 : selYear;
+      return getCutOffSchedule(ny, nm).cutOff1;
+    }
+  }, [selCutOff, selMonth, selYear, schedule]);
+
   // All entries in cut-off window OR carry-forwarded to this cut-off
   const coEntries = useMemo(() =>
     state.otEntries.filter(e =>
@@ -4336,6 +4349,17 @@ function OTProcessing() {
                                             <X size={11}/> Revoke
                                           </button>
                                         )}
+                                        {isApproved && (
+                                          <button
+                                            onClick={() => {
+                                              dispatch({ type:'UPDATE_OT_STATUS', id:entry.id, status:'Approved', assignedCutOffStart: nextCO.startDate });
+                                              toast(dispatch, `OT entry assigned to ${nextCO.label}`);
+                                            }}
+                                            title={`Assign to ${nextCO.label}`}
+                                            className="flex items-center gap-0.5 px-2 py-1 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-medium whitespace-nowrap">
+                                            ↪ Next Cut-off
+                                          </button>
+                                        )}
                                         <button onClick={()=>setEditing(entry)} className="p-1.5 rounded-lg hover:bg-orange-50 text-orange-400 hover:text-orange-700"><Edit2 size={13}/></button>
                                         <button onClick={()=>setDelConfirm(entry)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500"><Trash2 size={13}/></button>
                                       </div>
@@ -4570,16 +4594,242 @@ function Sidebar({ active, setActive, collapsed, setCollapsed }) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// LOGIN PAGE
+// ─────────────────────────────────────────────────────────────
+function LoginPage({ onLogin }) {
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPw,   setShowPw]   = useState(false);
+  const [error,    setError]    = useState('');
+  const [loading,  setLoading]  = useState(false);
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    setTimeout(() => {
+      const creds = JSON.parse(localStorage.getItem('payroll_credentials') || 'null')
+        || { username: 'admin', password: 'admin123' };
+      if (username === creds.username && password === creds.password) {
+        onLogin();
+      } else {
+        setError('Invalid username or password.');
+      }
+      setLoading(false);
+    }, 600);
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50" style={{background:'linear-gradient(135deg,#1a0e00 0%,#3b1a00 60%,#c2410c 100%)'}}>
+      <div className="w-full max-w-sm mx-4">
+        {/* Logo card */}
+        <div className="flex flex-col items-center mb-8">
+          <div className="w-20 h-20 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center mb-4 shadow-xl">
+            <img src="/dragonai-logo.png" alt="Dragon AI" className="w-14 h-14 object-contain"
+              onError={e => { e.target.style.display='none'; }}/>
+          </div>
+          <h1 className="text-2xl font-bold text-white tracking-tight">DRAGON AI</h1>
+          <p className="text-orange-300 text-sm font-medium mt-0.5">Payroll System</p>
+        </div>
+
+        {/* Form */}
+        <div className="bg-white rounded-2xl shadow-2xl p-8">
+          <h2 className="text-lg font-bold text-gray-800 mb-1">Sign in</h2>
+          <p className="text-sm text-gray-400 mb-6">Enter your credentials to continue</p>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Username</label>
+              <input
+                type="text"
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                placeholder="Username"
+                autoFocus
+                required
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Password</label>
+              <div className="relative">
+                <input
+                  type={showPw ? 'text' : 'password'}
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  placeholder="Password"
+                  required
+                  className="w-full px-4 py-2.5 pr-10 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition"
+                />
+                <button type="button" onClick={() => setShowPw(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  {showPw ? <Unlock size={15}/> : <Lock size={15}/>}
+                </button>
+              </div>
+            </div>
+
+            {error && (
+              <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
+                <AlertCircle size={14}/> {error}
+              </div>
+            )}
+
+            <button type="submit" disabled={loading}
+              className="w-full py-2.5 rounded-xl bg-orange-700 hover:bg-orange-800 text-white font-semibold text-sm transition disabled:opacity-60 flex items-center justify-center gap-2 mt-2">
+              {loading ? (
+                <><RefreshCw size={14} className="animate-spin"/> Signing in…</>
+              ) : 'Sign In'}
+            </button>
+          </form>
+        </div>
+
+        <p className="text-center text-white/30 text-xs mt-6">DRAGON AI © {new Date().getFullYear()}</p>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// CHANGE CREDENTIALS MODAL
+// ─────────────────────────────────────────────────────────────
+function ChangeCredentialsModal({ onClose }) {
+  const creds = JSON.parse(localStorage.getItem('payroll_credentials') || 'null')
+    || { username: 'admin', password: 'admin123' };
+
+  const [currentPw,  setCurrentPw]  = useState('');
+  const [newUser,    setNewUser]     = useState(creds.username);
+  const [newPw,      setNewPw]       = useState('');
+  const [confirmPw,  setConfirmPw]   = useState('');
+  const [showCur,    setShowCur]     = useState(false);
+  const [showNew,    setShowNew]     = useState(false);
+  const [error,      setError]       = useState('');
+  const [success,    setSuccess]     = useState('');
+
+  function handleSave(e) {
+    e.preventDefault();
+    setError(''); setSuccess('');
+    if (currentPw !== creds.password) { setError('Current password is incorrect.'); return; }
+    if (!newUser.trim())              { setError('Username cannot be empty.'); return; }
+    if (newPw && newPw.length < 6)   { setError('New password must be at least 6 characters.'); return; }
+    if (newPw && newPw !== confirmPw) { setError('New passwords do not match.'); return; }
+    const updated = { username: newUser.trim(), password: newPw || creds.password };
+    localStorage.setItem('payroll_credentials', JSON.stringify(updated));
+    setSuccess('Credentials updated successfully!');
+    setTimeout(onClose, 1200);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <ShieldCheck size={18} className="text-orange-700"/>
+            <h2 className="font-bold text-gray-800">Change Login Credentials</h2>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X size={16}/></button>
+        </div>
+
+        <form onSubmit={handleSave} className="p-6 space-y-4">
+          {/* Current Password */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Current Password</label>
+            <div className="relative">
+              <input type={showCur ? 'text' : 'password'} value={currentPw} onChange={e=>setCurrentPw(e.target.value)}
+                required placeholder="Enter current password"
+                className="w-full px-4 py-2.5 pr-10 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"/>
+              <button type="button" onClick={()=>setShowCur(v=>!v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                {showCur ? <Unlock size={14}/> : <Lock size={14}/>}
+              </button>
+            </div>
+          </div>
+
+          <div className="border-t border-dashed border-gray-200 pt-4">
+            {/* New Username */}
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">New Username</label>
+            <input type="text" value={newUser} onChange={e=>setNewUser(e.target.value)}
+              required placeholder="New username"
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition mb-4"/>
+
+            {/* New Password */}
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">New Password <span className="text-gray-400 normal-case font-normal">(leave blank to keep current)</span></label>
+            <div className="relative mb-4">
+              <input type={showNew ? 'text' : 'password'} value={newPw} onChange={e=>setNewPw(e.target.value)}
+                placeholder="New password (min. 6 chars)"
+                className="w-full px-4 py-2.5 pr-10 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"/>
+              <button type="button" onClick={()=>setShowNew(v=>!v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                {showNew ? <Unlock size={14}/> : <Lock size={14}/>}
+              </button>
+            </div>
+
+            {/* Confirm Password */}
+            {newPw && (
+              <>
+                <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Confirm New Password</label>
+                <input type="password" value={confirmPw} onChange={e=>setConfirmPw(e.target.value)}
+                  placeholder="Re-enter new password"
+                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 transition"/>
+              </>
+            )}
+          </div>
+
+          {error && (
+            <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
+              <AlertCircle size={14}/> {error}
+            </div>
+          )}
+          {success && (
+            <div className="flex items-center gap-2 px-3 py-2.5 bg-green-50 border border-green-200 rounded-xl text-green-700 text-sm">
+              <Check size={14}/> {success}
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose}
+              className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition">
+              Cancel
+            </button>
+            <button type="submit"
+              className="flex-1 py-2.5 rounded-xl bg-orange-700 text-white text-sm font-semibold hover:bg-orange-800 transition">
+              Save Changes
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // MAIN APP
 // ─────────────────────────────────────────────────────────────
 export default function PayrollApp() {
-  const [state, dispatch] = useReducer(reducer, initialState);
+  const [isLoggedIn,     setIsLoggedIn]     = useState(() => sessionStorage.getItem('payroll_auth') === '1');
+  const [showChangeCreds, setShowChangeCreds] = useState(false);
+  const [state, dispatch] = useReducer(reducer, undefined, () => {
+    try {
+      const saved = localStorage.getItem('payroll_state');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return { ...initialState, ...parsed, toasts: [] };
+      }
+    } catch {}
+    return initialState;
+  });
   const [activePage, setActivePage] = useState('dashboard');
   const [collapsed, setCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const notifRef = useRef(null);
   const notifications = useNotifications(state);
+
+  // Persist state to localStorage on every change (excluding toasts)
+  useEffect(() => {
+    try {
+      const { toasts, ...persist } = state;
+      localStorage.setItem('payroll_state', JSON.stringify(persist));
+    } catch {}
+  }, [state]);
 
   // Close notification panel when clicking outside
   useEffect(() => {
@@ -4605,8 +4855,21 @@ export default function PayrollApp() {
 
   const currentNav = NAV_ITEMS.find(n=>n.id===activePage);
 
+  function handleLogin() {
+    sessionStorage.setItem('payroll_auth', '1');
+    setIsLoggedIn(true);
+  }
+
+  function handleLogout() {
+    sessionStorage.removeItem('payroll_auth');
+    setIsLoggedIn(false);
+  }
+
+  if (!isLoggedIn) return <LoginPage onLogin={handleLogin}/>;
+
   return (
     <AppCtx.Provider value={{ state, dispatch }}>
+      {showChangeCreds && <ChangeCredentialsModal onClose={() => setShowChangeCreds(false)}/>}
       <div className="flex h-screen bg-gray-50 font-sans overflow-hidden">
         {/* Desktop Sidebar */}
         <div className="hidden md:flex">
@@ -4676,13 +4939,63 @@ export default function PayrollApp() {
                   />
                 )}
               </div>
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 bg-orange-700 rounded-full flex items-center justify-center text-white text-xs font-bold">HR</div>
-                <div className="hidden sm:block text-sm">
-                  <p className="font-medium text-gray-800 leading-tight">HR Admin</p>
-                  <p className="text-xs text-gray-400">Payroll Manager</p>
-                </div>
-              </div>
+              {/* User Menu */}
+              {(() => {
+                const [userMenuOpen, setUserMenuOpen] = React.useState(false);
+                const userMenuRef = React.useRef(null);
+                React.useEffect(() => {
+                  function handler(e) {
+                    if (userMenuRef.current && !userMenuRef.current.contains(e.target)) setUserMenuOpen(false);
+                  }
+                  if (userMenuOpen) document.addEventListener('mousedown', handler);
+                  return () => document.removeEventListener('mousedown', handler);
+                }, [userMenuOpen]);
+                return (
+                  <div className="relative" ref={userMenuRef}>
+                    <button
+                      onClick={() => setUserMenuOpen(v => !v)}
+                      className="flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-gray-100 transition-colors cursor-pointer">
+                      <div className="w-8 h-8 bg-orange-700 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">A</div>
+                      <div className="hidden sm:block text-left">
+                        <p className="font-semibold text-gray-800 text-sm leading-tight">HR Admin</p>
+                        <p className="text-xs text-gray-400">Payroll Manager</p>
+                      </div>
+                      <ChevronDown size={14} className={`text-gray-400 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`}/>
+                    </button>
+
+                    {userMenuOpen && (
+                      <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-50">
+                        {/* User info header */}
+                        <div className="px-4 py-3 bg-orange-50 border-b border-orange-100">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-9 h-9 bg-orange-700 rounded-full flex items-center justify-center text-white text-sm font-bold">A</div>
+                            <div>
+                              <p className="font-semibold text-gray-800 text-sm">HR Admin</p>
+                              <p className="text-xs text-gray-400">Payroll Manager</p>
+                            </div>
+                          </div>
+                        </div>
+                        {/* Menu items */}
+                        <div className="py-1.5">
+                          <button
+                            onClick={() => { setUserMenuOpen(false); setShowChangeCreds(true); }}
+                            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                            <ShieldCheck size={15} className="text-orange-600"/>
+                            Change Password
+                          </button>
+                          <div className="my-1 border-t border-gray-100"/>
+                          <button
+                            onClick={() => { setUserMenuOpen(false); handleLogout(); }}
+                            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors">
+                            <Lock size={15}/>
+                            Sign Out
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </header>
 
