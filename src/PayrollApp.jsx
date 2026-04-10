@@ -1919,9 +1919,14 @@ function EmployeeManagement() {
                   <td className="px-4 py-3 text-gray-500">{fmtDate(emp.hireDate)}</td>
                   <td className="px-4 py-3 text-gray-500 font-mono">••••{emp.bank}</td>
                   <td className="px-4 py-3">
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 items-center flex-wrap">
                       <button onClick={()=>setEditing(emp)} className="p-1.5 rounded-lg hover:bg-orange-50 text-orange-700" title="Edit Employee"><Edit2 size={14}/></button>
-                      <button onClick={()=>setGovEmp(emp)} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600" title="Gov't Deductions & Loans"><ShieldCheck size={14}/></button>
+                      <button
+                        onClick={()=>setGovEmp(emp)}
+                        className="flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold"
+                        title="Edit Deductions & Loans">
+                        <ShieldCheck size={13}/> Deductions
+                      </button>
                       {!emp.separated && (
                         <button onClick={()=>setLwdEmp(emp)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500" title="Set Last Working Day">
                           <UserMinus size={14}/>
