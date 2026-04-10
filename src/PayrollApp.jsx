@@ -4801,6 +4801,66 @@ function ChangeCredentialsModal({ onClose }) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// USER MENU DROPDOWN
+// ─────────────────────────────────────────────────────────────
+function UserMenu({ onChangeCreds, onLogout }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handler(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    if (open) document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-gray-100 transition-colors cursor-pointer">
+        <div className="w-8 h-8 bg-orange-700 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">A</div>
+        <div className="hidden sm:block text-left">
+          <p className="font-semibold text-gray-800 text-sm leading-tight">HR Admin</p>
+          <p className="text-xs text-gray-400">Payroll Manager</p>
+        </div>
+        <ChevronDown size={14} className={`text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}/>
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-50">
+          <div className="px-4 py-3 bg-orange-50 border-b border-orange-100">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 bg-orange-700 rounded-full flex items-center justify-center text-white text-sm font-bold">A</div>
+              <div>
+                <p className="font-semibold text-gray-800 text-sm">HR Admin</p>
+                <p className="text-xs text-gray-400">Payroll Manager</p>
+              </div>
+            </div>
+          </div>
+          <div className="py-1.5">
+            <button
+              onClick={() => { setOpen(false); onChangeCreds(); }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+              <ShieldCheck size={15} className="text-orange-600"/>
+              Change Password
+            </button>
+            <div className="my-1 border-t border-gray-100"/>
+            <button
+              onClick={() => { setOpen(false); onLogout(); }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors">
+              <Lock size={15}/>
+              Sign Out
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // MAIN APP
 // ─────────────────────────────────────────────────────────────
 export default function PayrollApp() {
@@ -4940,62 +5000,7 @@ export default function PayrollApp() {
                 )}
               </div>
               {/* User Menu */}
-              {(() => {
-                const [userMenuOpen, setUserMenuOpen] = React.useState(false);
-                const userMenuRef = React.useRef(null);
-                React.useEffect(() => {
-                  function handler(e) {
-                    if (userMenuRef.current && !userMenuRef.current.contains(e.target)) setUserMenuOpen(false);
-                  }
-                  if (userMenuOpen) document.addEventListener('mousedown', handler);
-                  return () => document.removeEventListener('mousedown', handler);
-                }, [userMenuOpen]);
-                return (
-                  <div className="relative" ref={userMenuRef}>
-                    <button
-                      onClick={() => setUserMenuOpen(v => !v)}
-                      className="flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-gray-100 transition-colors cursor-pointer">
-                      <div className="w-8 h-8 bg-orange-700 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">A</div>
-                      <div className="hidden sm:block text-left">
-                        <p className="font-semibold text-gray-800 text-sm leading-tight">HR Admin</p>
-                        <p className="text-xs text-gray-400">Payroll Manager</p>
-                      </div>
-                      <ChevronDown size={14} className={`text-gray-400 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`}/>
-                    </button>
-
-                    {userMenuOpen && (
-                      <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-50">
-                        {/* User info header */}
-                        <div className="px-4 py-3 bg-orange-50 border-b border-orange-100">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-9 h-9 bg-orange-700 rounded-full flex items-center justify-center text-white text-sm font-bold">A</div>
-                            <div>
-                              <p className="font-semibold text-gray-800 text-sm">HR Admin</p>
-                              <p className="text-xs text-gray-400">Payroll Manager</p>
-                            </div>
-                          </div>
-                        </div>
-                        {/* Menu items */}
-                        <div className="py-1.5">
-                          <button
-                            onClick={() => { setUserMenuOpen(false); setShowChangeCreds(true); }}
-                            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
-                            <ShieldCheck size={15} className="text-orange-600"/>
-                            Change Password
-                          </button>
-                          <div className="my-1 border-t border-gray-100"/>
-                          <button
-                            onClick={() => { setUserMenuOpen(false); handleLogout(); }}
-                            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors">
-                            <Lock size={15}/>
-                            Sign Out
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
+              <UserMenu onChangeCreds={() => setShowChangeCreds(true)} onLogout={handleLogout}/>
             </div>
           </header>
 
