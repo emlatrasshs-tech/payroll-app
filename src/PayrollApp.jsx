@@ -20,6 +20,16 @@ import {
 // ─────────────────────────────────────────────────────────────
 // CONSTANTS & UTILITIES
 // ─────────────────────────────────────────────────────────────
+const DEFAULT_DEDUCTIONS = {
+  sssRate:        4.5,
+  sssCap:         900,
+  philHealthRate: 2.5,
+  philHealthMin:  250,
+  philHealthCap:  2500,
+  pagIbigRate:    2.0,
+  pagIbigCap:     200,
+};
+
 const DEPARTMENTS = ['Events', 'Social Media', 'Human Resources', 'Operations', 'Creative', 'Support'];
 const DEPT_COLORS = {
   Events: '#c2410c', 'Social Media': '#f59e0b',
@@ -549,16 +559,6 @@ const SEED_ATTENDANCE = SEED_EMPLOYEES.slice(0,5).map(emp => ({
 // ─────────────────────────────────────────────────────────────
 // STATE MANAGEMENT
 // ─────────────────────────────────────────────────────────────
-const DEFAULT_DEDUCTIONS = {
-  sssRate:        4.5,   // %
-  sssCap:         900,   // max PHP
-  philHealthRate: 2.5,   // %
-  philHealthMin:  250,   // min PHP
-  philHealthCap:  2500,  // max PHP
-  pagIbigRate:    2.0,   // %
-  pagIbigCap:     200,   // max PHP
-};
-
 const initialState = {
   employees:         SEED_EMPLOYEES,
   payrollRuns:       SEED_RUNS,
