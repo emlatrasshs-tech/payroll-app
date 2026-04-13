@@ -2,6 +2,7 @@ import React, {
   useState, useReducer, useContext, createContext,
   useCallback, useMemo, useRef, useEffect
 } from 'react';
+import { supabase } from './supabase';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
@@ -639,6 +640,8 @@ function reducer(state, action) {
       return { ...state, toasts: state.toasts.filter(t => t.id !== action.id) };
     case 'UPDATE_DEDUCTION_SETTINGS':
       return { ...state, deductionSettings: { ...state.deductionSettings, ...action.payload } };
+    case 'LOAD_STATE':
+      return { ...initialState, ...action.payload, toasts: [] };
     default: return state;
   }
 }
@@ -5005,18 +5008,8 @@ function UserMenu({ onChangeCreds, onLogout }) {
 export default function PayrollApp() {
   const [isLoggedIn,     setIsLoggedIn]     = useState(() => sessionStorage.getItem('payroll_auth') === '1');
   const [showChangeCreds, setShowChangeCreds] = useState(false);
-  const STATE_VERSION = 'v2'; // bump this to reset saved state
-  const [state, dispatch] = useReducer(reducer, undefined, () => {
-    try {
-      const ver   = localStorage.getItem('payroll_state_ver');
-      const saved = localStorage.getItem('payroll_state');
-      if (saved && ver === STATE_VERSION) {
-        const parsed = JSON.parse(saved);
-        return { ...initialState, ...parsed, toasts: [] };
-      }
-    } catch {}
-    return initialState;
-  });
+  const [dbLoading, setDbLoading] = useState(true);
+  const [state, dispatch] = useReducer(reducer, initialState);
   const [activePage, setActivePage] = useState(() => sessionStorage.getItem('payroll_page') || 'dashboard');
   const [collapsed, setCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -5024,14 +5017,45 @@ export default function PayrollApp() {
   const notifRef = useRef(null);
   const notifications = useNotifications(state);
 
-  // Persist state to localStorage on every change (excluding toasts)
+  // Load state from Supabase on mount
   useEffect(() => {
-    try {
-      const { toasts, ...persist } = state;
-      localStorage.setItem('payroll_state', JSON.stringify(persist));
-      localStorage.setItem('payroll_state_ver', STATE_VERSION);
-    } catch {}
-  }, [state]);
+    async function loadFromSupabase() {
+      try {
+        const { data, error } = await supabase
+          .from('payroll_state')
+          .select('data')
+          .eq('id', 'main')
+          .single();
+        if (!error && data?.data) {
+          dispatch({ type: 'LOAD_STATE', payload: data.data });
+        }
+      } catch (e) {
+        console.error('Supabase load failed:', e);
+      } finally {
+        setDbLoading(false);
+      }
+    }
+    loadFromSupabase();
+  }, []);
+
+  // Save state to Supabase on every change (debounced 1.5s)
+  const saveTimer = useRef(null);
+  useEffect(() => {
+    if (dbLoading) return;
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      try {
+        const { toasts, ...persist } = state;
+        await supabase.from('payroll_state').upsert({
+          id: 'main',
+          data: persist,
+          updated_at: new Date().toISOString(),
+        });
+      } catch (e) {
+        console.error('Supabase save failed:', e);
+      }
+    }, 1500);
+  }, [state, dbLoading]);
 
   // Close notification panel when clicking outside
   useEffect(() => {
@@ -5073,6 +5097,14 @@ export default function PayrollApp() {
   }
 
   if (!isLoggedIn) return <LoginPage onLogin={handleLogin}/>;
+
+  if (dbLoading) return (
+    <div className="min-h-screen flex flex-col items-center justify-center gap-4" style={{background:'linear-gradient(135deg,#1a0e00 0%,#3b1a00 60%,#c2410c 100%)'}}>
+      <img src="/dragonai-logo.png" alt="Dragon AI" className="w-16 h-16 object-contain animate-pulse"/>
+      <p className="text-white font-semibold text-lg tracking-wide">Loading Payroll Data…</p>
+      <p className="text-orange-300 text-sm">Connecting to database</p>
+    </div>
+  );
 
   return (
     <AppCtx.Provider value={{ state, dispatch }}>
