@@ -5038,24 +5038,44 @@ export default function PayrollApp() {
     loadFromSupabase();
   }, []);
 
-  // Save state to Supabase on every change (debounced 1.5s)
-  const saveTimer = useRef(null);
+  // Save state to Supabase
+  const saveTimer  = useRef(null);
+  const stateRef   = useRef(state);
+  const loadedRef  = useRef(false);
+  stateRef.current = state;
+
+  const saveNow = useCallback(async (s) => {
+    try {
+      const { toasts, ...persist } = s || stateRef.current;
+      await supabase.from('payroll_state').upsert({
+        id: 'main',
+        data: persist,
+        updated_at: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.error('Supabase save failed:', e);
+    }
+  }, []);
+
+  // Debounced auto-save (300ms) after every state change
   useEffect(() => {
     if (dbLoading) return;
+    if (!loadedRef.current) { loadedRef.current = true; return; } // skip first render after load
     clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      try {
-        const { toasts, ...persist } = state;
-        await supabase.from('payroll_state').upsert({
-          id: 'main',
-          data: persist,
-          updated_at: new Date().toISOString(),
-        });
-      } catch (e) {
-        console.error('Supabase save failed:', e);
-      }
-    }, 1500);
-  }, [state, dbLoading]);
+    saveTimer.current = setTimeout(() => saveNow(state), 300);
+  }, [state, dbLoading, saveNow]);
+
+  // Save immediately when user refreshes or closes the tab
+  useEffect(() => {
+    const handleUnload = () => { saveNow(stateRef.current); };
+    window.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') saveNow(stateRef.current);
+    });
+    window.addEventListener('beforeunload', handleUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleUnload);
+    };
+  }, [saveNow]);
 
   // Close notification panel when clicking outside
   useEffect(() => {
