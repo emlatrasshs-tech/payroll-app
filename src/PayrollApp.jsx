@@ -87,12 +87,20 @@ function calcGovContribs(monthlySalary, s = DEFAULT_DEDUCTIONS) {
 }
 
 // Count Mon–Sat working days in a date range (inclusive)
-function countWorkingDays(startDate, endDate) {
+// Excludes: Sundays, Regular Holidays, Special Non-Working Holidays, and any extra declared holiday dates
+function countWorkingDays(startDate, endDate, extraHolidayDates = []) {
+  const extraSet = new Set(extraHolidayDates);
   let count = 0;
   const cur = new Date(startDate + 'T00:00:00');
   const end = new Date(endDate + 'T00:00:00');
   while (cur <= end) {
-    if (cur.getDay() !== 0) count++; // 0=Sunday, skip it
+    const dow     = cur.getDay();
+    const dateStr = cur.toISOString().split('T')[0];
+    const phHol   = PH_HOLIDAYS[dateStr];
+    // Regular Holidays & Special Non-Working = not a working day
+    // Special Working = still a working day (no work no pay)
+    const isNonWorkingHoliday = phHol && phHol.type !== 'specwork';
+    if (dow !== 0 && !isNonWorkingHoliday && !extraSet.has(dateStr)) count++;
     cur.setDate(cur.getDate() + 1);
   }
   return count;
@@ -2397,8 +2405,13 @@ function PayrollProcessing() {
       )
     );
 
-    // Dynamic Mon–Sat working days for this cut-off
-    const periodWorkingDays = countWorkingDays(activeCO.startDate, activeCO.endDate);
+    // Dynamic Mon–Sat working days — exclude PH holidays + any holidays logged in Holiday Pay tab
+    const loggedHolidayDates = [...new Set(
+      (state.holidayEntries || [])
+        .filter(e => e.date >= activeCO.startDate && e.date <= activeCO.endDate && e.status === 'Approved')
+        .map(e => e.date)
+    )];
+    const periodWorkingDays = countWorkingDays(activeCO.startDate, activeCO.endDate, loggedHolidayDates);
 
     const rows = state.employees.map(emp => {
       const att        = attendanceMap[emp.id] || {};
