@@ -2308,20 +2308,30 @@ function PayrollProcessing() {
   // Reset preview & reimbursements when selection changes
   useEffect(() => { setPreview(null); setReimbursements({}); }, [selYear, selMonth, selCutOff]);
 
-  // Only count Approved attendance records (absent / late types) within the active cut-off window
+  // Build attendance map: count approved absences & late minutes within the active cut-off
   const attendanceMap = useMemo(() => {
+    // Unpaid leave types that should deduct from salary
+    const UNPAID_TYPES = new Set(
+      LEAVE_TYPES.filter(l => !l.paid).map(l => l.id)
+    ); // 'absent','late','personal','emergency','bereavement','other'
+
     const m = {};
     state.attendance.forEach(a => {
       const isApproved = !a.status || a.status === 'Approved';
       const inRange    = a.date >= activeCO.startDate && a.date <= activeCO.endDate;
       if (!isApproved || !inRange) return;
       if (!m[a.employeeId]) m[a.employeeId] = { absences: 0, lateMinutes: 0 };
-      const t = (a.type === 'Absent' || a.type === 'absent') ? 'absent'
-              : (a.type === 'Late'   || a.type === 'late')   ? 'late'
-              : a.type;
-      if (t === 'absent') m[a.employeeId].absences     += (a.days || 1);
-      else if (t === 'late') m[a.employeeId].lateMinutes += (a.minutes || 0);
-      // Paid leave types (sick, vacation, etc.) don't deduct from pay
+
+      const type = (a.type || '').toLowerCase().trim();
+
+      if (type === 'late') {
+        // Tardiness — deduct based on minutes late
+        m[a.employeeId].lateMinutes += (a.minutes || 0);
+      } else if (UNPAID_TYPES.has(type) && type !== 'late') {
+        // Unpaid absence (absent, personal, emergency, bereavement, other)
+        m[a.employeeId].absences += (a.days || 1);
+      }
+      // Paid leave types (sick, vacation, sil, maternity, paternity) → no deduction
     });
     return m;
   }, [state.attendance, activeCO]);
