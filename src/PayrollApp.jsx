@@ -86,20 +86,56 @@ function calcGovContribs(monthlySalary, s = DEFAULT_DEDUCTIONS) {
   return { sss, philHealth, pagIbig };
 }
 
+// Count Mon–Sat working days in a date range (inclusive)
+function countWorkingDays(startDate, endDate) {
+  let count = 0;
+  const cur = new Date(startDate + 'T00:00:00');
+  const end = new Date(endDate + 'T00:00:00');
+  while (cur <= end) {
+    if (cur.getDay() !== 0) count++; // 0=Sunday, skip it
+    cur.setDate(cur.getDate() + 1);
+  }
+  return count;
+}
+
+// Compute holiday premium/deduction for one employee in a cut-off
+function computeHolidayPay(holidayEntries, startDate, endDate, employeeId, dailyRate) {
+  let premium   = 0;
+  let deduction = 0;
+  (holidayEntries || []).forEach(e => {
+    if (e.employeeId !== employeeId) return;
+    if (e.date < startDate || e.date > endDate) return;
+    if (e.status !== 'Approved') return;
+    const hours      = +(e.hoursWorked || 8);
+    const hourlyRate = dailyRate / 8;
+    if (e.holidayType === 'reghol') {
+      if (e.worked) premium += hourlyRate * hours; // 100% premium (total 200%)
+      // not worked → 100% already in salary, no deduction
+    } else if (e.holidayType === 'spechol') {
+      if (e.worked) premium += hourlyRate * hours * 0.30; // 30% premium
+      else deduction += dailyRate;                        // no work no pay
+    } else if (e.holidayType === 'specwork') {
+      if (!e.worked) deduction += dailyRate;             // no work no pay
+      // worked → regular pay, no premium
+    }
+  });
+  return { premium, deduction };
+}
+
 // cutOff: 1 = basic half-salary only, no allowance, no gov deductions
 //         2 = basic half-salary + allowance, apply gov deductions (no tax per policy)
-function calcPayslip(emp, periodDays = 11, absences = 0, lateMinutes = 0, overtime = 0, cutOff = 2, reimbursement = 0, otPayDirect = 0, deductionSettings = DEFAULT_DEDUCTIONS) {
+function calcPayslip(emp, periodDays = 13, absences = 0, lateMinutes = 0, overtime = 0, cutOff = 2, reimbursement = 0, otPayDirect = 0, deductionSettings = DEFAULT_DEDUCTIONS, holidayPremium = 0, holidayDeduction = 0) {
   const monthlySalary = emp.salary || 0;
   const halfSalary    = monthlySalary / 2;
   const allowance     = cutOff === 2 ? (emp.allowance || 0) : 0;
   const dailyRate     = monthlySalary / 26;
-  const workingDays   = 11;
+  const workingDays   = periodDays; // dynamic Mon–Sat count
   const daysAttended  = Math.max(0, workingDays - absences);
   const absenceDeduct = dailyRate * absences;
   const lateDeduct    = (dailyRate / 8 / 60) * lateMinutes;
   // otPayDirect = pre-computed from approved OT entries; falls back to simple formula
   const overtimePay   = otPayDirect > 0 ? otPayDirect : (dailyRate / 8) * 1.25 * overtime;
-  const grossPay      = Math.max(0, halfSalary + allowance + reimbursement - absenceDeduct - lateDeduct + overtimePay);
+  const grossPay      = Math.max(0, halfSalary + allowance + reimbursement - absenceDeduct - lateDeduct + overtimePay + holidayPremium - holidayDeduction);
 
   // Gov deductions only on Cut-Off 2
   // Use manual overrides if set, otherwise auto-compute from salary brackets
@@ -125,6 +161,7 @@ function calcPayslip(emp, periodDays = 11, absences = 0, lateMinutes = 0, overti
   return {
     grossPay, baseSalary: halfSalary, allowance, reimbursement,
     absenceDeduct, lateDeduct, overtimePay,
+    holidayPremium, holidayDeduction,
     sss, philHealth, pagIbig, tax: 0,
     sssLoan, hdmfLoan, companyLoan, otherLoans,
     totalGovDeduct, totalLoanDeduct,
@@ -565,6 +602,7 @@ const initialState = {
   payrollRuns:       SEED_RUNS,
   attendance:        SEED_ATTENDANCE,
   otEntries:         [],
+  holidayEntries:    [],
   finalPayRecords:   [],
   toasts:            [],
   deductionSettings: DEFAULT_DEDUCTIONS,
@@ -640,6 +678,12 @@ function reducer(state, action) {
       return { ...state, toasts: state.toasts.filter(t => t.id !== action.id) };
     case 'UPDATE_DEDUCTION_SETTINGS':
       return { ...state, deductionSettings: { ...state.deductionSettings, ...action.payload } };
+    case 'ADD_HOLIDAY_ENTRY':
+      return { ...state, holidayEntries: [...state.holidayEntries, action.payload] };
+    case 'UPDATE_HOLIDAY_ENTRY':
+      return { ...state, holidayEntries: state.holidayEntries.map(e => e.id === action.payload.id ? action.payload : e) };
+    case 'DELETE_HOLIDAY_ENTRY':
+      return { ...state, holidayEntries: state.holidayEntries.filter(e => e.id !== action.id) };
     case 'LOAD_STATE':
       return { ...initialState, ...action.payload, toasts: [] };
     default: return state;
@@ -2196,6 +2240,12 @@ function PayslipModal({ payslip, employee, runPeriod, releaseDateLabel, otEntrie
               {payslip.reimbursement > 0 && (
                 <Row label="Reimbursement" value={`+${fmt(payslip.reimbursement)}`} color="text-emerald-600"/>
               )}
+              {payslip.holidayPremium > 0 && (
+                <Row label="Holiday Premium Pay" value={`+${fmt(payslip.holidayPremium)}`} color="text-emerald-600"/>
+              )}
+              {payslip.holidayDeduction > 0 && (
+                <Row label="Special Holiday (No Work)" value={`-${fmt(payslip.holidayDeduction)}`} color="text-red-500"/>
+              )}
 
               <div className="border-t border-gray-200 mt-1 pt-2">
                 <Row label="Gross Salary" value={fmt(adjustedGross)} color="text-emerald-700" bold/>
@@ -2347,13 +2397,18 @@ function PayrollProcessing() {
       )
     );
 
+    // Dynamic Mon–Sat working days for this cut-off
+    const periodWorkingDays = countWorkingDays(activeCO.startDate, activeCO.endDate);
+
     const rows = state.employees.map(emp => {
-      const att       = attendanceMap[emp.id] || {};
-      const reimb_amt = parseFloat(reimb[emp.id] || 0);
-      const empOT     = approvedOT.filter(e => e.employeeId === emp.id);
-      const otPay     = empOT.reduce((s, e) => s + (e.pay?.total || 0), 0);
-      const otIds     = empOT.map(e => e.id);
-      const calc      = calcPayslip(emp, 11, att.absences||0, att.lateMinutes||0, 0, selCutOff, reimb_amt, otPay);
+      const att        = attendanceMap[emp.id] || {};
+      const reimb_amt  = parseFloat(reimb[emp.id] || 0);
+      const empOT      = approvedOT.filter(e => e.employeeId === emp.id);
+      const otPay      = empOT.reduce((s, e) => s + (e.pay?.total || 0), 0);
+      const otIds      = empOT.map(e => e.id);
+      const dailyRate  = (emp.salary || 0) / 26;
+      const holPay     = computeHolidayPay(state.holidayEntries, activeCO.startDate, activeCO.endDate, emp.id, dailyRate);
+      const calc       = calcPayslip(emp, periodWorkingDays, att.absences||0, att.lateMinutes||0, 0, selCutOff, reimb_amt, otPay, undefined, holPay.premium, holPay.deduction);
       return { emp, calc, otIds };
     });
     setPreview(rows);
@@ -3073,6 +3128,254 @@ function TardinessTab({ records, empMap, onDelete }) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// HOLIDAY PAY TAB
+// ─────────────────────────────────────────────────────────────
+const HOLIDAY_TYPES = [
+  { id:'reghol',  label:'Regular Holiday',          color:'bg-red-100 text-red-700'    },
+  { id:'spechol', label:'Special Non-Working',       color:'bg-amber-100 text-amber-700'},
+  { id:'specwork',label:'Special Working Holiday',   color:'bg-blue-100 text-blue-700'  },
+];
+
+function HolidayPayTab({ employees, entries, empMap, onAdd, onUpdate, onDelete }) {
+  const emptyForm = { employeeId:'', date:'', holidayType:'reghol', worked:true, hoursWorked:8, notes:'' };
+  const [form,       setForm]       = useState(emptyForm);
+  const [showForm,   setShowForm]   = useState(false);
+  const [editEntry,  setEditEntry]  = useState(null);
+  const [search,     setSearch]     = useState('');
+
+  const f = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  const holiday     = form.date ? PH_HOLIDAYS[form.date] : null;
+  const autoType    = holiday ? (holiday.type === 'reghol' ? 'reghol' : 'spechol') : form.holidayType;
+  const dailyRateEx = employees.find(e => e.id === form.employeeId)?.salary / 26 || 0;
+  const hourlyRate  = dailyRateEx / 8;
+  const hours       = +(form.hoursWorked || 8);
+
+  // Preview computed pay
+  const previewPay = () => {
+    const ht = holiday ? autoType : form.holidayType;
+    if (ht === 'reghol')  return form.worked ? hourlyRate * hours : 0;
+    if (ht === 'spechol') return form.worked ? hourlyRate * hours * 0.30 : -(dailyRateEx);
+    if (ht === 'specwork') return form.worked ? 0 : -(dailyRateEx);
+    return 0;
+  };
+  const pay = previewPay();
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    const ht = holiday ? autoType : form.holidayType;
+    const entry = {
+      id: editEntry?.id || uid(),
+      employeeId: form.employeeId,
+      date: form.date,
+      holidayName: holiday?.name || '—',
+      holidayType: ht,
+      worked: form.worked,
+      hoursWorked: form.worked ? +form.hoursWorked : 0,
+      notes: form.notes,
+      status: 'Approved',
+    };
+    editEntry ? onUpdate(entry) : onAdd(entry);
+    setForm(emptyForm); setShowForm(false); setEditEntry(null);
+  }
+
+  function openEdit(entry) {
+    setEditEntry(entry);
+    setForm({ employeeId: entry.employeeId, date: entry.date, holidayType: entry.holidayType, worked: entry.worked, hoursWorked: entry.hoursWorked || 8, notes: entry.notes || '' });
+    setShowForm(true);
+  }
+
+  const filtered = entries.filter(e => {
+    const emp = empMap[e.employeeId];
+    return !search || (emp?.name || '').toLowerCase().includes(search.toLowerCase());
+  }).sort((a, b) => b.date.localeCompare(a.date));
+
+  const fieldCls = 'w-full px-3 py-2 text-sm rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-orange-400';
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold text-gray-800">Holiday Pay Log</h3>
+          <p className="text-xs text-gray-400 mt-0.5">Log holiday work/no-work entries — reflected automatically in payroll</p>
+        </div>
+        <button onClick={() => { setShowForm(true); setEditEntry(null); setForm(emptyForm); }}
+          className="flex items-center gap-1.5 px-4 py-2 bg-orange-700 hover:bg-orange-800 text-white rounded-xl text-sm font-semibold transition">
+          <Plus size={14}/> Log Holiday Pay
+        </button>
+      </div>
+
+      {/* Rules reminder */}
+      <div className="grid grid-cols-3 gap-3 text-xs">
+        {[
+          { label:'Regular Holiday', rules:['Not Worked → 100% (in salary, no addition)','Worked → 200% (add 100% premium)'], color:'bg-red-50 border-red-200 text-red-800' },
+          { label:'Special Non-Working', rules:['Not Worked → No Work No Pay (deduct)','Worked → 130% (add 30% premium)'], color:'bg-amber-50 border-amber-200 text-amber-800' },
+          { label:'Special Working', rules:['Not Worked → No Work No Pay (deduct)','Worked → Regular Pay (no premium)'], color:'bg-blue-50 border-blue-200 text-blue-800' },
+        ].map(card => (
+          <div key={card.label} className={`rounded-xl border p-3 ${card.color}`}>
+            <p className="font-bold mb-1">{card.label}</p>
+            {card.rules.map(r => <p key={r} className="opacity-80">• {r}</p>)}
+          </div>
+        ))}
+      </div>
+
+      {/* Search */}
+      <div className="relative">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employee…"
+          className="w-full pl-9 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-400"/>
+      </div>
+
+      {/* Table */}
+      {filtered.length === 0 ? (
+        <div className="text-center py-12 text-gray-400 text-sm">No holiday pay entries yet.</div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide border-b border-gray-100">
+                {['Employee','Date','Holiday','Type','Worked?','Hours','Pay Adjustment','Status',''].map(h => (
+                  <th key={h} className="px-4 py-2.5 text-left font-medium whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {filtered.map(entry => {
+                const emp   = empMap[entry.employeeId];
+                const ht    = HOLIDAY_TYPES.find(t => t.id === entry.holidayType);
+                const dr    = (emp?.salary || 0) / 26;
+                const hr    = dr / 8;
+                const hrs   = +(entry.hoursWorked || 8);
+                let payAdj  = 0;
+                if (entry.holidayType === 'reghol')   payAdj = entry.worked ? hr * hrs : 0;
+                if (entry.holidayType === 'spechol')  payAdj = entry.worked ? hr * hrs * 0.30 : -dr;
+                if (entry.holidayType === 'specwork') payAdj = entry.worked ? 0 : -dr;
+                return (
+                  <tr key={entry.id} className="hover:bg-gray-50/50">
+                    <td className="px-4 py-3 font-medium text-gray-800">{emp?.name || entry.employeeId}</td>
+                    <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmtDate(entry.date)}</td>
+                    <td className="px-4 py-3 text-gray-600">{entry.holidayName || '—'}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${ht?.color || 'bg-gray-100 text-gray-600'}`}>
+                        {ht?.label || entry.holidayType}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${entry.worked ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                        {entry.worked ? 'Yes' : 'No'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-500">{entry.worked ? `${entry.hoursWorked || 8}h` : '—'}</td>
+                    <td className={`px-4 py-3 font-semibold ${payAdj >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                      {payAdj === 0 ? '₱0.00' : (payAdj > 0 ? '+' : '') + fmt(payAdj)}
+                    </td>
+                    <td className="px-4 py-3"><Badge status={entry.status || 'Approved'}/></td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-1">
+                        <button onClick={() => openEdit(entry)} className="p-1.5 rounded-lg hover:bg-orange-50 text-orange-400 hover:text-orange-700"><Edit2 size={13}/></button>
+                        <button onClick={() => onDelete(entry.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500"><Trash2 size={13}/></button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Form Modal */}
+      <Modal isOpen={showForm} onClose={() => { setShowForm(false); setEditEntry(null); }} title={editEntry ? 'Edit Holiday Entry' : 'Log Holiday Pay'}>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Employee */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Employee</label>
+            <select value={form.employeeId} onChange={e => f('employeeId', e.target.value)} required className={fieldCls}>
+              <option value="">Select employee…</option>
+              {employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+          </div>
+
+          {/* Date */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Holiday Date</label>
+            <input type="date" value={form.date} onChange={e => f('date', e.target.value)} required className={fieldCls}/>
+            {holiday && (
+              <p className="mt-1.5 text-xs text-orange-700 font-medium">📅 {holiday.name} — {holiday.type === 'reghol' ? 'Regular Holiday' : 'Special Non-Working'}</p>
+            )}
+            {form.date && !holiday && (
+              <p className="mt-1.5 text-xs text-gray-400">Not a PH holiday. Select holiday type manually below.</p>
+            )}
+          </div>
+
+          {/* Holiday Type (manual override if not in PH_HOLIDAYS) */}
+          {!holiday && form.date && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Holiday Type</label>
+              <select value={form.holidayType} onChange={e => f('holidayType', e.target.value)} className={fieldCls}>
+                {HOLIDAY_TYPES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+            </div>
+          )}
+
+          {/* Worked? */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Did the employee work on this holiday?</label>
+            <div className="flex gap-3">
+              {[true, false].map(v => (
+                <button type="button" key={String(v)}
+                  onClick={() => f('worked', v)}
+                  className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition ${form.worked === v ? (v ? 'bg-green-600 text-white border-green-600' : 'bg-gray-500 text-white border-gray-500') : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
+                  {v ? 'Yes — Worked' : 'No — Did not work'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Hours worked */}
+          {form.worked && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Hours Worked</label>
+              <input type="number" min={1} max={24} step={0.5} value={form.hoursWorked}
+                onChange={e => f('hoursWorked', e.target.value)} required className={fieldCls}/>
+            </div>
+          )}
+
+          {/* Notes */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Notes (optional)</label>
+            <input value={form.notes} onChange={e => f('notes', e.target.value)} placeholder="Optional notes…" className={fieldCls}/>
+          </div>
+
+          {/* Pay Preview */}
+          {form.employeeId && form.date && (
+            <div className={`rounded-xl px-4 py-3 text-sm border ${pay >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Pay Adjustment Preview</p>
+              <p className={`font-bold text-base ${pay >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                {pay === 0 ? '₱0.00 (no change to pay)' : (pay > 0 ? '+' : '') + fmt(pay)}
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {pay > 0 ? 'Holiday premium will be added to payroll' : pay < 0 ? 'Day will be deducted (no work no pay)' : 'Regular holiday, salary covers this day'}
+              </p>
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={() => { setShowForm(false); setEditEntry(null); }}
+              className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50">Cancel</button>
+            <button type="submit"
+              className="flex-1 py-2.5 rounded-xl bg-orange-700 text-white text-sm font-semibold hover:bg-orange-800">
+              {editEntry ? 'Save Changes' : 'Log Entry'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  );
+}
+
 // ATTENDANCE & LEAVE (main page)
 // ─────────────────────────────────────────────────────────────
 function AttendanceLeave() {
@@ -3115,6 +3418,7 @@ function AttendanceLeave() {
     { id:'records',   label:'Leave Records'  },
     { id:'sil',       label:'SIL Ledger'     },
     { id:'tardiness', label:'Tardiness Log'  },
+    { id:'holiday',   label:'Holiday Pay'    },
   ];
 
   return (
@@ -3175,6 +3479,16 @@ function AttendanceLeave() {
       {activeTab === 'tardiness' && (
         <TardinessTab records={tardinessRecords} empMap={empMap}
           onDelete={id => { dispatch({ type:'DELETE_ATTENDANCE', id }); toast(dispatch,'Record removed','warning'); }}/>
+      )}
+      {activeTab === 'holiday' && (
+        <HolidayPayTab
+          employees={state.employees}
+          entries={state.holidayEntries || []}
+          empMap={empMap}
+          onAdd={entry => { dispatch({ type:'ADD_HOLIDAY_ENTRY', payload:entry }); toast(dispatch,'Holiday entry added'); }}
+          onUpdate={entry => { dispatch({ type:'UPDATE_HOLIDAY_ENTRY', payload:entry }); toast(dispatch,'Holiday entry updated'); }}
+          onDelete={id => { dispatch({ type:'DELETE_HOLIDAY_ENTRY', id }); toast(dispatch,'Holiday entry removed','warning'); }}
+        />
       )}
 
       {/* Form modal */}
