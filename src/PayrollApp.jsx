@@ -424,6 +424,7 @@ const PH_HOLIDAYS = {
   '2026-01-01':{ name:"New Year's Day",              type:'reghol'  },
   '2026-01-17':{ name:'Chinese New Year',             type:'spechol' },
   '2026-02-25':{ name:'EDSA People Power Revolution', type:'spechol' },
+  '2026-03-20':{ name:"Eid'l Fitr (Feast of Ramadhan)", type:'reghol' },
   '2026-04-02':{ name:'Maundy Thursday',              type:'reghol'  },
   '2026-04-03':{ name:'Good Friday',                  type:'reghol'  },
   '2026-04-04':{ name:'Black Saturday',               type:'spechol' },
