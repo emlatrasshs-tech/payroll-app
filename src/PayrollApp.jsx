@@ -1885,7 +1885,7 @@ function EmployeeManagement() {
     (deptFilter==='All'||e.dept===deptFilter) &&
     (typeFilter==='All'||e.type===typeFilter) &&
     (e.name.toLowerCase().includes(search.toLowerCase()) || e.id.includes(search))
-  ), [state.employees, search, deptFilter, typeFilter]);
+  ).sort((a,b) => a.name.localeCompare(b.name)), [state.employees, search, deptFilter, typeFilter]);
 
   const addEmp = (emp) => {
     dispatch({ type:'ADD_EMPLOYEE', payload: emp });
