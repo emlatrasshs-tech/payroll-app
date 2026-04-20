@@ -3549,20 +3549,25 @@ async function generatePayrollSummaryPDF(run, empMap) {
 
   doc.setFontSize(20);
   doc.setFont('helvetica', 'bold');
+  // Helper: strip non-latin chars for jsPDF Helvetica compatibility
+  // (en-dash, peso sign, curly quotes, etc. all corrupt Helvetica output)
+  const safe = (s) => String(s || '').replace(/[^\x00-\x7E]/g, '-').replace(/-{2,}/g, '-').trim() || '-';
+
   doc.text('PAYROLL SUMMARY', pageW - M, 11, { align: 'right' });
   doc.setFontSize(8);
   doc.setFont('helvetica', 'normal');
-  doc.text(`Cut-Off Period: ${run.period}`, pageW - M, 18, { align: 'right' });
+  doc.text(`Cut-Off Period: ${safe(run.period)}`, pageW - M, 18, { align: 'right' });
 
   // ── SUB-HEADER (period info) ─────────────────────────────────
   doc.setTextColor(60, 60, 60);
   doc.setFontSize(8.5);
   let infoY = 30;
   const pairs = [
-    ['Coverage:',     run.coverage || '—'],
-    ['Release Date:', run.releaseDateLabel || fmtDate(run.date)],
-    ['Status:',       run.status || 'Paid'],
+    ['Coverage:',     safe(run.coverage || '-')],
+    ['Release Date:', safe(run.releaseDateLabel || fmtDate(run.date))],
+    ['Status:',       safe(run.status || 'Paid')],
     ['Employees:',    `${run.payslips.length}`],
+    ['Currency:',     'Philippine Peso (PHP)'],
   ];
   pairs.forEach(([label, value]) => {
     doc.setFont('helvetica', 'bold');
@@ -3572,18 +3577,25 @@ async function generatePayrollSummaryPDF(run, empMap) {
     infoY += 5;
   });
 
-  const genDate = new Date().toLocaleDateString('en-PH', { year:'numeric', month:'long', day:'numeric' });
+  // Use numeric date format to avoid locale-specific month names that may contain non-ASCII chars
+  const now = new Date();
+  const genDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
   doc.setFont('helvetica', 'italic');
   doc.setFontSize(8);
   doc.setTextColor(120, 120, 120);
   doc.text(`Generated: ${genDate}`, pageW - M, 30, { align: 'right' });
 
+  // Helper: format number for PDF (no peso symbol — not supported by Helvetica)
+  const p = (n) => fmtNum(n);
+
   // ── TABLE ────────────────────────────────────────────────────
   const head = [[
-    '#', 'Employee Name', 'Department', 'Daily Rate', 'Days',
-    'Gross Pay', 'SSS', 'PhilHealth', 'Pag-IBIG',
-    'Loans', 'Total Deductions', 'Net Pay',
+    '#', 'Employee Name', 'Department', 'Daily Rate\n(PHP)', 'Days',
+    'Gross Pay\n(PHP)', 'SSS\n(PHP)', 'PhilHealth\n(PHP)', 'Pag-IBIG\n(PHP)',
+    'Loans\n(PHP)', 'Total Deductions\n(PHP)', 'Net Pay\n(PHP)',
   ]];
+
+  const DASH = '-'; // plain hyphen — em/en dashes corrupt jsPDF Helvetica output
 
   const body = run.payslips.map((ps, i) => {
     const emp    = empMap[ps.employeeId];
@@ -3592,40 +3604,40 @@ async function generatePayrollSummaryPDF(run, empMap) {
                  + (typeof ps.otherLoans === 'number' ? ps.otherLoans : 0);
     return [
       i + 1,
-      emp?.name || ps.employeeId,
-      emp?.dept || '—',
-      `₱${fmtNum(dr)}`,
-      ps.workingDays ?? '—',
-      `₱${fmtNum(ps.grossPay)}`,
-      isCO1 ? '—' : `₱${fmtNum(ps.sss || 0)}`,
-      isCO1 ? '—' : `₱${fmtNum(ps.philHealth || 0)}`,
-      isCO1 ? '—' : `₱${fmtNum(ps.pagIbig || 0)}`,
-      loans > 0 ? `₱${fmtNum(loans)}` : '—',
-      isCO1 ? '—' : `₱${fmtNum(ps.totalDeductions || 0)}`,
-      `₱${fmtNum(ps.netPay)}`,
+      safe(emp?.name || ps.employeeId),
+      safe(emp?.dept || DASH),
+      p(dr),
+      ps.workingDays ?? DASH,
+      p(ps.grossPay),
+      isCO1 ? DASH : p(ps.sss || 0),
+      isCO1 ? DASH : p(ps.philHealth || 0),
+      isCO1 ? DASH : p(ps.pagIbig || 0),
+      loans > 0 ? p(loans) : DASH,
+      isCO1 ? DASH : p(ps.totalDeductions || 0),
+      p(ps.netPay),
     ];
   });
 
   // Totals
-  const tGross  = run.payslips.reduce((s,p) => s + p.grossPay, 0);
-  const tSSS    = run.payslips.reduce((s,p) => s + (p.sss || 0), 0);
-  const tPH     = run.payslips.reduce((s,p) => s + (p.philHealth || 0), 0);
-  const tHDMF   = run.payslips.reduce((s,p) => s + (p.pagIbig || 0), 0);
-  const tLoans  = run.payslips.reduce((s,p) =>
-    s + (p.sssLoan||0) + (p.hdmfLoan||0) + (p.companyLoan||0)
-      + (typeof p.otherLoans==='number' ? p.otherLoans : 0), 0);
-  const tDeduct = run.payslips.reduce((s,p) => s + (p.totalDeductions || 0), 0);
-  const tNet    = run.payslips.reduce((s,p) => s + p.netPay, 0);
+  const tGross  = run.payslips.reduce((s,q) => s + q.grossPay, 0);
+  const tSSS    = run.payslips.reduce((s,q) => s + (q.sss || 0), 0);
+  const tPH     = run.payslips.reduce((s,q) => s + (q.philHealth || 0), 0);
+  const tHDMF   = run.payslips.reduce((s,q) => s + (q.pagIbig || 0), 0);
+  const tLoans  = run.payslips.reduce((s,q) =>
+    s + (q.sssLoan||0) + (q.hdmfLoan||0) + (q.companyLoan||0)
+      + (typeof q.otherLoans==='number' ? q.otherLoans : 0), 0);
+  const tDeduct = run.payslips.reduce((s,q) => s + (q.totalDeductions || 0), 0);
+  const tNet    = run.payslips.reduce((s,q) => s + q.netPay, 0);
 
   body.push([
     '', 'TOTAL', `${run.payslips.length} employees`, '', '',
-    `₱${fmtNum(tGross)}`,
-    isCO1 ? '—' : `₱${fmtNum(tSSS)}`,
-    isCO1 ? '—' : `₱${fmtNum(tPH)}`,
-    isCO1 ? '—' : `₱${fmtNum(tHDMF)}`,
-    tLoans > 0 ? `₱${fmtNum(tLoans)}` : '—',
-    isCO1 ? '—' : `₱${fmtNum(tDeduct)}`,
-    `₱${fmtNum(tNet)}`,
+    p(tGross),
+    isCO1 ? DASH : p(tSSS),
+    isCO1 ? DASH : p(tPH),
+    isCO1 ? DASH : p(tHDMF),
+    tLoans > 0 ? p(tLoans) : DASH,
+    isCO1 ? DASH : p(tDeduct),
+    p(tNet),
   ]);
 
   autoTable(doc, {
@@ -3705,11 +3717,12 @@ async function generatePayrollSummaryPDF(run, empMap) {
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'normal');
   doc.text(
-    'System-generated payroll summary  ·  Dragon AI Media Inc.  ·  Confidential',
+    'System-generated payroll summary  |  Dragon AI Media Inc.  |  Confidential',
     pageW / 2, pageH - 2.5, { align: 'center' }
   );
 
-  doc.save(`Payroll_Summary_${run.period.replace(/[\s,–\/]+/g, '_')}.pdf`);
+  // Strip non-ASCII from filename too (en-dash in period label)
+  doc.save(`Payroll_Summary_${run.period.replace(/[^A-Za-z0-9]+/g, '_')}.pdf`);
 }
 
 // ─────────────────────────────────────────────────────────────
