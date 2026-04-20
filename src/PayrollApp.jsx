@@ -3634,8 +3634,9 @@ async function generatePayrollSummaryPDF(run, empMap) {
   const tDeduct = run.payslips.reduce((s,q) => s + (q.totalDeductions || 0), 0);
   const tNet    = run.payslips.reduce((s,q) => s + q.netPay, 0);
 
-  // Total row uses "PHP X,XXX.XX" — peso sign only appears here
-  body.push([
+  // ── FOOT (total row) — jsPDF autotable footer, always perfectly column-aligned ──
+  // "PHP X,XXX.XX" prefix only on this row (accounting convention)
+  const foot = [[
     '', 'TOTAL', `${run.payslips.length} employees`, '', '',
     pT(tGross),
     isCO1 ? DASH : pT(tSSS),
@@ -3644,15 +3645,22 @@ async function generatePayrollSummaryPDF(run, empMap) {
     pT(tLoans),
     isCO1 ? DASH : pT(tDeduct),
     pT(tNet),
-  ]);
+  ]];
 
-  const totalRowIdx = body.length - 1;
+  // Column widths MUST sum to exactly (pageW - 2*M) = 273mm
+  // to prevent jsPDF from auto-distributing leftover space and
+  // causing head / body / foot cells to render at different x-offsets.
+  // 10+60+26+21+11+23+19+20+18+18+24+23 = 273 ✓
+  const colWidths = [10, 60, 26, 21, 11, 23, 19, 20, 18, 18, 24, 23];
 
   autoTable(doc, {
     head,
     body,
-    startY: 57,                 // a little more breathing room after sub-header
+    foot,
+    startY: 57,
     margin: { left: M, right: M },
+    showFoot: 'lastPage',        // total row shows only once, at end of table
+
     styles: {
       fontSize:    7.5,
       cellPadding: { top: 3, bottom: 3, left: 2.5, right: 2.5 },
@@ -3660,49 +3668,53 @@ async function generatePayrollSummaryPDF(run, empMap) {
       overflow:    'linebreak',
       textColor:   [40, 40, 40],
     },
+
     headStyles: {
-      fillColor:  orange,
-      textColor:  [255, 255, 255],
+      fillColor:    orange,
+      textColor:    [255, 255, 255],
+      fontStyle:    'bold',
+      halign:       'center',
+      valign:       'middle',       // vertically center the header text
+      fontSize:     7.5,
+      cellPadding:  { top: 5, bottom: 5, left: 2.5, right: 2.5 },
+      minCellHeight: 12,
+    },
+
+    footStyles: {
+      fillColor:  [254, 232, 210],
+      textColor:  [120, 30, 0],
       fontStyle:  'bold',
-      halign:     'center',
-      fontSize:   7.5,
+      fontSize:   8,
+      valign:     'middle',
       cellPadding: { top: 4, bottom: 4, left: 2.5, right: 2.5 },
     },
-    // ── Column widths & alignment ────────────────────────────
-    // Total usable width: 297 - 24 (margins) = 273mm
-    columnStyles: {
-      0:  { halign: 'center', cellWidth: 10  },   // #
-      1:  { halign: 'left',   cellWidth: 55  },   // Employee Name — wider
-      2:  { halign: 'left',   cellWidth: 26  },   // Department
-      3:  { halign: 'right',  cellWidth: 21  },   // Daily Rate
-      4:  { halign: 'center', cellWidth: 11  },   // Days
-      5:  { halign: 'right',  cellWidth: 23  },   // Gross Pay
-      6:  { halign: 'right',  cellWidth: 19  },   // SSS
-      7:  { halign: 'right',  cellWidth: 20  },   // PhilHealth
-      8:  { halign: 'right',  cellWidth: 18  },   // Pag-IBIG
-      9:  { halign: 'right',  cellWidth: 18  },   // Loans
-      10: { halign: 'right',  cellWidth: 24  },   // Total Deductions
-      11: { halign: 'right',  cellWidth: 23  },   // Net Pay (bold via didParseCell)
-    },
-    didParseCell: (data) => {
-      const isTotal = data.row.index === totalRowIdx;
-      const isNetPay = data.column.index === 11;
 
-      if (isTotal) {
-        // Total row — bold, orange tint, dark orange text
-        data.cell.styles.fontStyle  = 'bold';
-        data.cell.styles.fillColor  = [254, 232, 210];
-        data.cell.styles.textColor  = [120, 30, 0];
-        data.cell.styles.fontSize   = 8;
-      } else if (isNetPay) {
-        // Net Pay column — bold in all data rows
+    // ── Column widths & alignment (summing to exactly 273mm) ──
+    columnStyles: {
+      0:  { halign: 'center', cellWidth: colWidths[0]  },   // #
+      1:  { halign: 'left',   cellWidth: colWidths[1]  },   // Employee Name
+      2:  { halign: 'left',   cellWidth: colWidths[2]  },   // Department
+      3:  { halign: 'right',  cellWidth: colWidths[3]  },   // Daily Rate
+      4:  { halign: 'center', cellWidth: colWidths[4]  },   // Days
+      5:  { halign: 'right',  cellWidth: colWidths[5]  },   // Gross Pay
+      6:  { halign: 'right',  cellWidth: colWidths[6]  },   // SSS
+      7:  { halign: 'right',  cellWidth: colWidths[7]  },   // PhilHealth
+      8:  { halign: 'right',  cellWidth: colWidths[8]  },   // Pag-IBIG
+      9:  { halign: 'right',  cellWidth: colWidths[9]  },   // Loans
+      10: { halign: 'right',  cellWidth: colWidths[10] },   // Total Deductions
+      11: { halign: 'right',  cellWidth: colWidths[11] },   // Net Pay
+    },
+
+    didParseCell: (data) => {
+      // Bold + dark green for Net Pay column in body rows only
+      if (data.section === 'body' && data.column.index === 11) {
         data.cell.styles.fontStyle = 'bold';
-        data.cell.styles.textColor = [30, 80, 30]; // dark green for net pay standout
+        data.cell.styles.textColor = [25, 75, 25];
       }
     },
-    // Zebra stripes — readable but subtle
+
     alternateRowStyles: { fillColor: [245, 240, 235] },
-    rowPageBreak: 'avoid',
+    rowPageBreak:  'avoid',
     tableLineColor: [210, 200, 190],
     tableLineWidth: 0.15,
   });
