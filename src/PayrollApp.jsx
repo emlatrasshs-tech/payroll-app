@@ -3592,7 +3592,11 @@ async function generatePayrollSummaryPDF(run, empMap) {
     return num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   };
   // Total row: prefix with "PHP" (peso sign unsupported in jsPDF Helvetica)
-  const pT = (n) => `PHP ${p(n)}`;
+  // Force explicit newline so ALL total cells are 2-line ("PHP" / amount).
+  // Without this, short values like "PHP 29,887.50" fit on one line and
+  // get centred vertically (valign:middle), making "PHP" appear lower
+  // than cells where the longer value naturally wraps.
+  const pT = (n) => `PHP\n${p(n)}`;
   const DASH = '-'; // plain hyphen — em/en dashes corrupt Helvetica output
 
   // ── TABLE ───────────────────────────────────────────────────
