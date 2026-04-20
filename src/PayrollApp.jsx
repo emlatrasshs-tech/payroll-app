@@ -2268,14 +2268,14 @@ function PayslipModal({ payslip, employee, runPeriod, releaseDateLabel, otEntrie
             <div className="px-4 py-2">
               {/* Gov't contributions */}
               <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mt-1 mb-0.5">Gov't Contributions</p>
-              <Row label={`SSS${employee.sssNo ? ` (${employee.sssNo})` : ''}`}
-                value={sssAmt > 0 ? `-${fmt(sssAmt)}` : isCO1 ? '₱0.00' : '₱0.00'}
+              <Row label="SSS"
+                value={sssAmt > 0 ? `-${fmt(sssAmt)}` : '₱0.00'}
                 color={sssAmt > 0 ? 'text-red-500' : 'text-gray-300'}/>
-              <Row label={`HDMF / Pag-IBIG${employee.hdmfNo ? ` (${employee.hdmfNo})` : ''}`}
-                value={hdmfAmt > 0 ? `-${fmt(hdmfAmt)}` : isCO1 ? '₱0.00' : '₱0.00'}
+              <Row label="HDMF / Pag-IBIG"
+                value={hdmfAmt > 0 ? `-${fmt(hdmfAmt)}` : '₱0.00'}
                 color={hdmfAmt > 0 ? 'text-red-500' : 'text-gray-300'}/>
-              <Row label={`PhilHealth${employee.philHealthNo ? ` (${employee.philHealthNo})` : ''}`}
-                value={phAmt > 0 ? `-${fmt(phAmt)}` : isCO1 ? '₱0.00' : '₱0.00'}
+              <Row label="PhilHealth"
+                value={phAmt > 0 ? `-${fmt(phAmt)}` : '₱0.00'}
                 color={phAmt > 0 ? 'text-red-500' : 'text-gray-300'}/>
               {/* Gov't loans */}
               {(sssLoan > 0 || hdmfLoan > 0) && (
@@ -3523,6 +3523,196 @@ function AttendanceLeave() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// PDF PAYROLL SUMMARY GENERATOR
+// ─────────────────────────────────────────────────────────────
+async function generatePayrollSummaryPDF(run, empMap) {
+  const { default: jsPDF }     = await import('jspdf');
+  const { default: autoTable } = await import('jspdf-autotable');
+
+  const doc   = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const pageW = 297;
+  const M     = 12; // margin
+  const isCO1 = run.cutOff === 1;
+  const orange = [194, 65, 12];
+
+  // ── TOP HEADER BAR ──────────────────────────────────────────
+  doc.setFillColor(...orange);
+  doc.rect(0, 0, pageW, 24, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.text('Dragon AI Media Inc.', M, 10);
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Payroll Management System', M, 17);
+
+  doc.setFontSize(20);
+  doc.setFont('helvetica', 'bold');
+  doc.text('PAYROLL SUMMARY', pageW - M, 11, { align: 'right' });
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Cut-Off Period: ${run.period}`, pageW - M, 18, { align: 'right' });
+
+  // ── SUB-HEADER (period info) ─────────────────────────────────
+  doc.setTextColor(60, 60, 60);
+  doc.setFontSize(8.5);
+  let infoY = 30;
+  const pairs = [
+    ['Coverage:',     run.coverage || '—'],
+    ['Release Date:', run.releaseDateLabel || fmtDate(run.date)],
+    ['Status:',       run.status || 'Paid'],
+    ['Employees:',    `${run.payslips.length}`],
+  ];
+  pairs.forEach(([label, value]) => {
+    doc.setFont('helvetica', 'bold');
+    doc.text(label, M, infoY);
+    doc.setFont('helvetica', 'normal');
+    doc.text(value, M + 28, infoY);
+    infoY += 5;
+  });
+
+  const genDate = new Date().toLocaleDateString('en-PH', { year:'numeric', month:'long', day:'numeric' });
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(8);
+  doc.setTextColor(120, 120, 120);
+  doc.text(`Generated: ${genDate}`, pageW - M, 30, { align: 'right' });
+
+  // ── TABLE ────────────────────────────────────────────────────
+  const head = [[
+    '#', 'Employee Name', 'Department', 'Daily Rate', 'Days',
+    'Gross Pay', 'SSS', 'PhilHealth', 'Pag-IBIG',
+    'Loans', 'Total Deductions', 'Net Pay',
+  ]];
+
+  const body = run.payslips.map((ps, i) => {
+    const emp    = empMap[ps.employeeId];
+    const dr     = ps.dailyRate || (emp?.salary || 0) / 26;
+    const loans  = (ps.sssLoan || 0) + (ps.hdmfLoan || 0) + (ps.companyLoan || 0)
+                 + (typeof ps.otherLoans === 'number' ? ps.otherLoans : 0);
+    return [
+      i + 1,
+      emp?.name || ps.employeeId,
+      emp?.dept || '—',
+      `₱${fmtNum(dr)}`,
+      ps.workingDays ?? '—',
+      `₱${fmtNum(ps.grossPay)}`,
+      isCO1 ? '—' : `₱${fmtNum(ps.sss || 0)}`,
+      isCO1 ? '—' : `₱${fmtNum(ps.philHealth || 0)}`,
+      isCO1 ? '—' : `₱${fmtNum(ps.pagIbig || 0)}`,
+      loans > 0 ? `₱${fmtNum(loans)}` : '—',
+      isCO1 ? '—' : `₱${fmtNum(ps.totalDeductions || 0)}`,
+      `₱${fmtNum(ps.netPay)}`,
+    ];
+  });
+
+  // Totals
+  const tGross  = run.payslips.reduce((s,p) => s + p.grossPay, 0);
+  const tSSS    = run.payslips.reduce((s,p) => s + (p.sss || 0), 0);
+  const tPH     = run.payslips.reduce((s,p) => s + (p.philHealth || 0), 0);
+  const tHDMF   = run.payslips.reduce((s,p) => s + (p.pagIbig || 0), 0);
+  const tLoans  = run.payslips.reduce((s,p) =>
+    s + (p.sssLoan||0) + (p.hdmfLoan||0) + (p.companyLoan||0)
+      + (typeof p.otherLoans==='number' ? p.otherLoans : 0), 0);
+  const tDeduct = run.payslips.reduce((s,p) => s + (p.totalDeductions || 0), 0);
+  const tNet    = run.payslips.reduce((s,p) => s + p.netPay, 0);
+
+  body.push([
+    '', 'TOTAL', `${run.payslips.length} employees`, '', '',
+    `₱${fmtNum(tGross)}`,
+    isCO1 ? '—' : `₱${fmtNum(tSSS)}`,
+    isCO1 ? '—' : `₱${fmtNum(tPH)}`,
+    isCO1 ? '—' : `₱${fmtNum(tHDMF)}`,
+    tLoans > 0 ? `₱${fmtNum(tLoans)}` : '—',
+    isCO1 ? '—' : `₱${fmtNum(tDeduct)}`,
+    `₱${fmtNum(tNet)}`,
+  ]);
+
+  autoTable(doc, {
+    head,
+    body,
+    startY: 52,
+    margin: { left: M, right: M },
+    styles:      { fontSize: 7.5, cellPadding: 2.5, valign: 'middle', overflow: 'linebreak' },
+    headStyles:  { fillColor: orange, textColor: [255,255,255], fontStyle: 'bold', halign: 'center', fontSize: 7.5 },
+    columnStyles: {
+      0:  { halign: 'center', cellWidth: 8  },
+      1:  { cellWidth: 44 },
+      2:  { cellWidth: 28 },
+      3:  { halign: 'right', cellWidth: 20 },
+      4:  { halign: 'center', cellWidth: 13 },
+      5:  { halign: 'right', cellWidth: 23 },
+      6:  { halign: 'right', cellWidth: 19 },
+      7:  { halign: 'right', cellWidth: 19 },
+      8:  { halign: 'right', cellWidth: 19 },
+      9:  { halign: 'right', cellWidth: 19 },
+      10: { halign: 'right', cellWidth: 24 },
+      11: { halign: 'right', cellWidth: 24 },
+    },
+    didParseCell: (data) => {
+      if (data.row.index === body.length - 1) {
+        data.cell.styles.fontStyle  = 'bold';
+        data.cell.styles.fillColor  = [254, 235, 215];
+        data.cell.styles.textColor  = [120, 30, 0];
+      }
+    },
+    alternateRowStyles: { fillColor: [252, 249, 246] },
+    tableLineColor: [220, 210, 200],
+    tableLineWidth: 0.1,
+  });
+
+  // ── FOOTER ───────────────────────────────────────────────────
+  const pageH = 210;
+  const tblEnd = (doc.lastAutoTable?.finalY || 170) + 8;
+  const sigY   = Math.min(tblEnd, pageH - 28);
+
+  if (isCO1) {
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'italic');
+    doc.setTextColor(150, 150, 150);
+    doc.text(
+      '* Government contributions (SSS, PhilHealth, Pag-IBIG) are withheld on Cut-Off 2 only.',
+      M, sigY - 4
+    );
+  }
+
+  doc.setDrawColor(160, 160, 160);
+  doc.setLineWidth(0.3);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(60, 60, 60);
+
+  // Left sig
+  doc.line(M, sigY, M + 65, sigY);
+  doc.text('Prepared by', M, sigY + 4.5);
+  doc.setFontSize(7);
+  doc.setTextColor(130, 130, 130);
+  doc.text('(Signature over Printed Name)', M, sigY + 8.5);
+
+  // Right sig
+  doc.setFontSize(8);
+  doc.setTextColor(60, 60, 60);
+  doc.line(pageW - M - 65, sigY, pageW - M, sigY);
+  doc.text('Approved by', pageW - M - 65, sigY + 4.5);
+  doc.setFontSize(7);
+  doc.setTextColor(130, 130, 130);
+  doc.text('(Signature over Printed Name)', pageW - M - 65, sigY + 8.5);
+
+  // Bottom bar
+  doc.setFillColor(...orange);
+  doc.rect(0, pageH - 6, pageW, 6, 'F');
+  doc.setFontSize(6.5);
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'normal');
+  doc.text(
+    'System-generated payroll summary  ·  Dragon AI Media Inc.  ·  Confidential',
+    pageW / 2, pageH - 2.5, { align: 'center' }
+  );
+
+  doc.save(`Payroll_Summary_${run.period.replace(/[\s,–\/]+/g, '_')}.pdf`);
+}
+
+// ─────────────────────────────────────────────────────────────
 // PAYROLL HISTORY
 // ─────────────────────────────────────────────────────────────
 function PayrollHistory() {
@@ -3532,8 +3722,20 @@ function PayrollHistory() {
   const [runFilter, setRunFilter] = useState('all');
   const [expanded, setExpanded] = useState(null);
   const [viewPayslip, setViewPayslip] = useState(null);
+  const [pdfLoadingId, setPdfLoadingId] = useState(null);
 
   const empMap = useMemo(() => Object.fromEntries(state.employees.map(e=>[e.id,e])), [state.employees]);
+
+  const handleDownloadSummary = async (e, run) => {
+    e.stopPropagation();
+    setPdfLoadingId(run.id);
+    try {
+      await generatePayrollSummaryPDF(run, empMap);
+    } catch (err) {
+      console.error('PDF generation failed:', err);
+    }
+    setPdfLoadingId(null);
+  };
 
   const filteredRuns = useMemo(() =>
     state.payrollRuns
@@ -3611,6 +3813,20 @@ function PayrollHistory() {
 
               {isOpen && (
                 <div className="border-t border-gray-100 overflow-x-auto">
+                  {/* Download PDF Summary bar */}
+                  <div className="flex items-center justify-between px-5 py-3 bg-gray-50 border-b border-gray-100">
+                    <p className="text-xs text-gray-500 font-medium">
+                      {filteredPayslips.length} of {run.payslips.length} employees shown
+                    </p>
+                    <button
+                      onClick={e => handleDownloadSummary(e, run)}
+                      disabled={pdfLoadingId === run.id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-orange-200 text-orange-700 bg-orange-50 hover:bg-orange-100 disabled:opacity-60 transition-colors">
+                      {pdfLoadingId === run.id
+                        ? <><RefreshCw size={12} className="animate-spin"/> Generating PDF…</>
+                        : <><Download size={12}/> Download PDF Summary</>}
+                    </button>
+                  </div>
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
