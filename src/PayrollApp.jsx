@@ -31,11 +31,11 @@ const DEFAULT_DEDUCTIONS = {
   pagIbigCap:     200,
 };
 
-const DEPARTMENTS = ['Events', 'Social Media', 'Human Resources', 'Operations', 'Creative', 'Support'];
+const DEPARTMENTS = ['Events', 'Social Media', 'Human Resources', 'Operations', 'Creative', 'Support', 'Esports'];
 const DEPT_COLORS = {
   Events: '#c2410c', 'Social Media': '#f59e0b',
   'Human Resources': '#10b981', Operations: '#ec4899',
-  Creative: '#8b5cf6', Support: '#0ea5e9',
+  Creative: '#8b5cf6', Support: '#0ea5e9', Esports: '#6366f1',
 };
 const CHART_COLORS = ['#c2410c','#f59e0b','#10b981','#ec4899','#3b82f6','#8b5cf6'];
 const POSITIONS = {
@@ -43,6 +43,7 @@ const POSITIONS = {
   'Social Media':   ['Graphic & Social Media Specialist','Marketing and Creative Assistant','Social Media Manager','Content Creator'],
   'Human Resources':['HR Assistant','HR Manager','HR Specialist','Recruiter'],
   Operations:       ['Executive Driver','Photographer','Operations Manager','Office Assistant'],
+  Esports:          ['Esports Manager','Team Coach','Esports Coordinator','Esports Analyst','Content Creator'],
 };
 const EMP_TYPES = ['Regular','Probationary','Full-Time','Part-Time','Contractor','Project Based'];
 const PAY_FREQS = ['Bi-Monthly','Monthly','Bi-Weekly','Weekly'];
