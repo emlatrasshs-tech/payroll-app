@@ -3671,7 +3671,7 @@ async function generatePayrollSummaryPDF(run, empMap) {
     // ── Column widths & alignment ────────────────────────────
     // Total usable width: 297 - 24 (margins) = 273mm
     columnStyles: {
-      0:  { halign: 'center', cellWidth: 7   },   // #
+      0:  { halign: 'center', cellWidth: 10  },   // #
       1:  { halign: 'left',   cellWidth: 55  },   // Employee Name — wider
       2:  { halign: 'left',   cellWidth: 26  },   // Department
       3:  { halign: 'right',  cellWidth: 21  },   // Daily Rate
