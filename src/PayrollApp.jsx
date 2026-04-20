@@ -44,7 +44,7 @@ const POSITIONS = {
   'Human Resources':['HR Assistant','HR Manager','HR Specialist','Recruiter'],
   Operations:       ['Executive Driver','Photographer','Operations Manager','Office Assistant'],
 };
-const EMP_TYPES = ['Regular','Probationary','Full-Time','Part-Time','Contractor'];
+const EMP_TYPES = ['Regular','Probationary','Full-Time','Part-Time','Contractor','Project Based'];
 const PAY_FREQS = ['Bi-Monthly','Monthly','Bi-Weekly','Weekly'];
 
 const LEAVE_TYPES = [
