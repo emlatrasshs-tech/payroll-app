@@ -3710,10 +3710,31 @@ async function generatePayrollSummaryPDF(run, empMap) {
     },
 
     didParseCell: (data) => {
-      // Bold + dark green for Net Pay column in body rows only
-      if (data.section === 'body' && data.column.index === 11) {
-        data.cell.styles.fontStyle = 'bold';
-        data.cell.styles.textColor = [25, 75, 25];
+      const col = data.column.index;
+      const sec = data.section;
+      const RED   = [180, 20,  20];   // bold red  — Total Deductions
+      const GREEN = [20,  110, 20];   // bold green — Net Pay
+
+      if (sec === 'body') {
+        if (col === 10) {
+          // Total Deductions — bold red in every data row
+          data.cell.styles.fontStyle = 'bold';
+          data.cell.styles.textColor = RED;
+        } else if (col === 11) {
+          // Net Pay — bold green in every data row
+          data.cell.styles.fontStyle = 'bold';
+          data.cell.styles.textColor = GREEN;
+        }
+      } else if (sec === 'foot') {
+        if (col === 10) {
+          // PHP total for Total Deductions — bold red (overrides footStyles textColor)
+          data.cell.styles.fontStyle = 'bold';
+          data.cell.styles.textColor = RED;
+        } else if (col === 11) {
+          // PHP total for Net Pay — bold green (overrides footStyles textColor)
+          data.cell.styles.fontStyle = 'bold';
+          data.cell.styles.textColor = GREEN;
+        }
       }
     },
 
