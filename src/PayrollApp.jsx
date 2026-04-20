@@ -5652,12 +5652,15 @@ export default function PayrollApp() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [saveStatus, setSaveStatus] = useState('saved'); // 'saving' | 'saved' | 'error'
   const notifRef = useRef(null);
   const notifications = useNotifications(state);
 
-  // Load state from Supabase on mount
+  const LS_KEY = 'payroll_state_backup';
+
+  // Load state: Supabase first, fall back to localStorage
   useEffect(() => {
-    async function loadFromSupabase() {
+    async function loadState() {
       try {
         const { data, error } = await supabase
           .from('payroll_state')
@@ -5666,51 +5669,80 @@ export default function PayrollApp() {
           .single();
         if (!error && data?.data) {
           dispatch({ type: 'LOAD_STATE', payload: data.data });
+          setDbLoading(false);
+          return;
         }
       } catch (e) {
         console.error('Supabase load failed:', e);
-      } finally {
-        setDbLoading(false);
       }
+      // Supabase failed or empty — try localStorage backup
+      try {
+        const raw = localStorage.getItem(LS_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          dispatch({ type: 'LOAD_STATE', payload: parsed });
+        }
+      } catch (e) {
+        console.error('localStorage load failed:', e);
+      }
+      setDbLoading(false);
     }
-    loadFromSupabase();
+    loadState();
   }, []);
 
-  // Save state to Supabase
+  // Save state to Supabase + localStorage
   const saveTimer  = useRef(null);
   const stateRef   = useRef(state);
   const loadedRef  = useRef(false);
   stateRef.current = state;
 
   const saveNow = useCallback(async (s) => {
+    const { toasts, ...persist } = s || stateRef.current;
+    // Always save to localStorage immediately (fast, reliable)
     try {
-      const { toasts, ...persist } = s || stateRef.current;
-      await supabase.from('payroll_state').upsert({
+      localStorage.setItem(LS_KEY, JSON.stringify(persist));
+    } catch (e) {
+      console.error('localStorage save failed:', e);
+    }
+    // Also save to Supabase for cross-browser sync
+    setSaveStatus('saving');
+    try {
+      const { error } = await supabase.from('payroll_state').upsert({
         id: 'main',
         data: persist,
         updated_at: new Date().toISOString(),
       });
+      if (error) throw error;
+      setSaveStatus('saved');
     } catch (e) {
       console.error('Supabase save failed:', e);
+      setSaveStatus('error');
     }
   }, []);
 
-  // Debounced auto-save (300ms) after every state change
+  // Debounced auto-save (600ms) after every state change
   useEffect(() => {
     if (dbLoading) return;
     if (!loadedRef.current) { loadedRef.current = true; return; } // skip first render after load
+    setSaveStatus('saving');
     clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => saveNow(state), 300);
+    saveTimer.current = setTimeout(() => saveNow(state), 600);
   }, [state, dbLoading, saveNow]);
 
   // Save immediately when user refreshes or closes the tab
   useEffect(() => {
-    const handleUnload = () => { saveNow(stateRef.current); };
-    window.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') saveNow(stateRef.current);
-    });
+    const handleUnload = () => {
+      const { toasts, ...persist } = stateRef.current;
+      try { localStorage.setItem(LS_KEY, JSON.stringify(persist)); } catch(e) {}
+      saveNow(stateRef.current);
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') handleUnload();
+    };
+    window.addEventListener('visibilitychange', handleVisibility);
     window.addEventListener('beforeunload', handleUnload);
     return () => {
+      window.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener('beforeunload', handleUnload);
     };
   }, [saveNow]);
@@ -5814,6 +5846,18 @@ export default function PayrollApp() {
               <span className="font-medium text-gray-800">{currentNav?.label}</span>
             </div>
             <div className="ml-auto flex items-center gap-3">
+              {/* Save Status Indicator */}
+              <div className="flex items-center gap-1.5 text-xs font-medium select-none">
+                {saveStatus === 'saving' && (
+                  <><span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse inline-block"/><span className="text-yellow-600 hidden sm:inline">Saving…</span></>
+                )}
+                {saveStatus === 'saved' && (
+                  <><span className="w-2 h-2 rounded-full bg-green-500 inline-block"/><span className="text-green-600 hidden sm:inline">Saved</span></>
+                )}
+                {saveStatus === 'error' && (
+                  <><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse inline-block"/><span className="text-red-600 hidden sm:inline" title="Data saved locally. Cloud sync failed.">Local only</span></>
+                )}
+              </div>
               {/* Notification Bell */}
               <div className="relative" ref={notifRef}>
                 <button
