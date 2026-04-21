@@ -5457,9 +5457,9 @@ function EmployeePortal({ empId, employees, payrollRuns, otEntries, onLogout }) 
   const employee = employees.find(e => e.id === empId);
   const [selected, setSelected] = useState(null); // { run, payslip }
 
+  // Show ALL payroll runs that have a payslip for this employee, all cut-offs
   const myPayslips = useMemo(() => {
     return payrollRuns
-      .filter(r => r.status === 'Released')
       .flatMap(run => {
         const ps = run.payslips?.find(p => p.employeeId === empId);
         if (!ps) return [];
@@ -5476,6 +5476,12 @@ function EmployeePortal({ empId, employees, payrollRuns, otEntries, onLogout }) 
       </div>
     </div>
   );
+
+  const statusBadge = (status) => {
+    if (status === 'Released') return <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-700">Released</span>;
+    if (status === 'Processing') return <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700">Processing</span>;
+    return <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-500">{status || 'Draft'}</span>;
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -5515,12 +5521,14 @@ function EmployeePortal({ empId, employees, payrollRuns, otEntries, onLogout }) 
 
         {/* Payslip list */}
         <div>
-          <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">My Payslips</h2>
+          <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">
+            My Payslips <span className="text-gray-300 font-normal normal-case">({myPayslips.length})</span>
+          </h2>
           {myPayslips.length === 0 ? (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center">
               <FileText size={36} className="mx-auto text-gray-200 mb-3"/>
-              <p className="text-gray-400 text-sm">No released payslips yet.</p>
-              <p className="text-gray-300 text-xs mt-1">Your payslips will appear here once HR releases them.</p>
+              <p className="text-gray-400 text-sm">No payslips yet.</p>
+              <p className="text-gray-300 text-xs mt-1">Your payslips will appear here once payroll is processed.</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -5530,14 +5538,17 @@ function EmployeePortal({ empId, employees, payrollRuns, otEntries, onLogout }) 
                 const cutLabel = run.cutOff === 1 ? '1st Cut-Off' : run.cutOff === 2 ? '2nd Cut-Off' : `Cut-Off ${run.cutOff}`;
                 return (
                   <button key={run.id} onClick={() => setSelected({ run, payslip })}
-                    className="w-full bg-white rounded-xl border border-gray-100 shadow-sm hover:border-orange-200 hover:shadow-md transition-all p-4 flex items-center gap-4 text-left">
+                    className="w-full bg-white rounded-xl border border-gray-100 shadow-sm hover:border-orange-300 hover:shadow-md transition-all p-4 flex items-center gap-4 text-left">
                     <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
                       style={{background:'#fff7ed',color:'#c2410c'}}>
                       <FileText size={18}/>
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-gray-800 text-sm">{label}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">{cutLabel} · Released</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-xs text-gray-400">{cutLabel}</span>
+                        {statusBadge(run.status)}
+                      </div>
                     </div>
                     <div className="text-right">
                       <p className="text-xs text-gray-400">Net Pay</p>
@@ -5552,30 +5563,22 @@ function EmployeePortal({ empId, employees, payrollRuns, otEntries, onLogout }) 
         </div>
       </div>
 
-      {/* Payslip viewer modal */}
+      {/* Full payslip modal — same format as admin */}
       {selected && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto"
-          style={{background:'rgba(0,0,0,0.5)'}}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md my-6 overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <div>
-                <p className="font-bold text-gray-800">Payslip</p>
-                <p className="text-xs text-gray-400">{selected.run.label || selected.run.period}</p>
+        <div className="fixed inset-0 z-50 overflow-y-auto" style={{background:'rgba(0,0,0,0.65)'}}>
+          <div className="min-h-full flex items-start justify-center p-4 py-8">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+              <div className="p-5">
+                <PayslipModal
+                  payslip={selected.payslip}
+                  employee={employee}
+                  runPeriod={selected.run.label || selected.run.period || ''}
+                  releaseDateLabel={selected.run.releaseDate || selected.run.dateStr || ''}
+                  otEntries={otEntries}
+                  cutOffStartDate={selected.run.cutOffStart || ''}
+                  onClose={() => setSelected(null)}
+                />
               </div>
-              <button onClick={() => setSelected(null)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
-                <X size={18}/>
-              </button>
-            </div>
-            <div className="overflow-y-auto max-h-[75vh] p-4">
-              <PayslipModal
-                payslip={selected.payslip}
-                employee={employee}
-                runPeriod={selected.run.label || selected.run.period || ''}
-                releaseDateLabel={selected.run.releaseDate || selected.run.dateStr || ''}
-                otEntries={otEntries}
-                cutOffStartDate={selected.run.cutOffStart || ''}
-                onClose={() => setSelected(null)}
-              />
             </div>
           </div>
         </div>
