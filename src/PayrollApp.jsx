@@ -15,7 +15,8 @@ import {
   ChevronRight, Download, RefreshCw, UserCheck,
   ChevronUp, Bell, Filter, ArrowUpRight, ArrowDownRight, Timer,
   UserMinus, Banknote, Lock, Unlock, CalendarX,
-  ShieldCheck, Building, CreditCard as CreditCardIcon, PlusCircle, MinusCircle
+  ShieldCheck, Building, CreditCard as CreditCardIcon, PlusCircle, MinusCircle,
+  KeyRound, LogOut, User
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────
@@ -1881,6 +1882,7 @@ function EmployeeManagement() {
   const [delConfirm,   setDelConfirm]   = useState(null);
   const [lwdEmp,       setLwdEmp]       = useState(null);
   const [govEmp,       setGovEmp]       = useState(null);
+  const [pwEmp,        setPwEmp]        = useState(null);
 
   const filtered = useMemo(() => state.employees.filter(e =>
     (deptFilter==='All'||e.dept===deptFilter) &&
@@ -1984,6 +1986,7 @@ function EmployeeManagement() {
                   <td className="px-4 py-3">
                     <div className="flex gap-1 items-center flex-wrap">
                       <button onClick={()=>setEditing(emp)} className="p-1.5 rounded-lg hover:bg-orange-50 text-orange-700" title="Edit Employee"><Edit2 size={14}/></button>
+                      <button onClick={()=>setPwEmp(emp)} className="p-1.5 rounded-lg hover:bg-indigo-50 text-indigo-600" title="Employee Portal Password"><KeyRound size={14}/></button>
                       <button
                         onClick={()=>setGovEmp(emp)}
                         className="flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold"
@@ -2043,6 +2046,73 @@ function EmployeeManagement() {
           </div>
         )}
       </Modal>
+      <Modal isOpen={!!pwEmp} onClose={()=>setPwEmp(null)} title={`Portal Access — ${pwEmp?.name || ''}`}>
+        {pwEmp && <EmpPortalPasswordModal employee={pwEmp} onSave={emp => { updateEmp(emp); setPwEmp(null); toast(dispatch, 'Portal password updated', 'success'); }} onClose={() => setPwEmp(null)}/>}
+      </Modal>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// EMPLOYEE PORTAL PASSWORD MODAL (admin side)
+// ─────────────────────────────────────────────────────────────
+function EmpPortalPasswordModal({ employee, onSave, onClose }) {
+  const currentPw = employee.loginPassword || employee.id;
+  const [newPw,    setNewPw]    = useState('');
+  const [confirm,  setConfirm]  = useState('');
+  const [showPw,   setShowPw]   = useState(false);
+  const [error,    setError]    = useState('');
+
+  function handleSave(e) {
+    e.preventDefault();
+    setError('');
+    if (!newPw.trim())            { setError('Password cannot be empty.'); return; }
+    if (newPw.length < 4)         { setError('Password must be at least 4 characters.'); return; }
+    if (newPw !== confirm)         { setError('Passwords do not match.'); return; }
+    onSave({ ...employee, loginPassword: newPw.trim() });
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-start gap-3 p-3 rounded-xl bg-indigo-50 border border-indigo-100 text-sm text-indigo-800">
+        <KeyRound size={15} className="mt-0.5 flex-shrink-0"/>
+        <div>
+          <p className="font-semibold">{employee.name}</p>
+          <p className="text-xs text-indigo-600 mt-0.5">Employee ID: <strong>{employee.id}</strong> · Current password: <strong>{currentPw}</strong></p>
+          <p className="text-xs text-indigo-500 mt-1">The employee uses their Employee ID and this password to log in to the Employee Portal.</p>
+        </div>
+      </div>
+      <form onSubmit={handleSave} className="space-y-4">
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">New Password</label>
+          <div className="relative">
+            <input type={showPw ? 'text' : 'password'} value={newPw} onChange={e=>setNewPw(e.target.value)}
+              placeholder="Enter new password" autoFocus
+              className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-400 pr-10"/>
+            <button type="button" onClick={()=>setShowPw(v=>!v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+              {showPw ? <Unlock size={14}/> : <Lock size={14}/>}
+            </button>
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Confirm Password</label>
+          <input type={showPw ? 'text' : 'password'} value={confirm} onChange={e=>setConfirm(e.target.value)}
+            placeholder="Re-enter new password"
+            className="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-400"/>
+        </div>
+        {error && <p className="text-sm text-red-500 flex items-center gap-1.5"><AlertCircle size={13}/>{error}</p>}
+        <div className="flex gap-3 justify-between items-center pt-1">
+          <button type="button" onClick={() => onSave({ ...employee, loginPassword: employee.id })}
+            className="text-xs text-gray-400 hover:text-gray-600 underline">
+            Reset to default (Employee ID)
+          </button>
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-gray-200 hover:bg-gray-50">Cancel</button>
+            <button type="submit" className="px-4 py-2 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 font-medium">Save Password</button>
+          </div>
+        </div>
+      </form>
     </div>
   );
 }
@@ -5377,17 +5447,155 @@ function Sidebar({ active, setActive, collapsed, setCollapsed }) {
 // ─────────────────────────────────────────────────────────────
 // LOGIN PAGE
 // ─────────────────────────────────────────────────────────────
-function LoginPage({ onLogin }) {
+// ─────────────────────────────────────────────────────────────
+// EMPLOYEE PORTAL
+// ─────────────────────────────────────────────────────────────
+function EmployeePortal({ empId, employees, payrollRuns, otEntries, onLogout }) {
+  const employee = employees.find(e => e.id === empId);
+  const [selected, setSelected] = useState(null); // { run, payslip }
+
+  const myPayslips = useMemo(() => {
+    return payrollRuns
+      .filter(r => r.status === 'Released')
+      .flatMap(run => {
+        const ps = run.payslips?.find(p => p.employeeId === empId);
+        if (!ps) return [];
+        return [{ run, payslip: ps }];
+      })
+      .sort((a, b) => (b.run.dateStr || '').localeCompare(a.run.dateStr || ''));
+  }, [payrollRuns, empId]);
+
+  if (!employee) return (
+    <div className="min-h-screen flex items-center justify-center" style={{background:'linear-gradient(135deg,#1a0e00 0%,#3b1a00 60%,#c2410c 100%)'}}>
+      <div className="bg-white rounded-2xl p-8 text-center shadow-2xl">
+        <p className="text-gray-500">Employee account not found. Please contact HR.</p>
+        <button onClick={onLogout} className="mt-4 px-4 py-2 bg-orange-700 text-white rounded-lg text-sm">Back to Login</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="sticky top-0 z-20 shadow-md" style={{background:'linear-gradient(90deg,#1a0e00 0%,#7c2d12 100%)'}}>
+        <div className="max-w-2xl mx-auto px-4 py-3.5 flex items-center gap-3">
+          <img src="/dragonai-logo.png" alt="Dragon AI" className="w-8 h-8 object-contain flex-shrink-0"
+            onError={e => { e.target.style.display='none'; }}/>
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-white text-sm truncate">{employee.name}</p>
+            <p className="text-orange-300 text-xs truncate">{employee.dept}{employee.position ? ` · ${employee.position}` : ''}</p>
+          </div>
+          <button onClick={onLogout}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-medium transition">
+            <LogOut size={13}/> Logout
+          </button>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
+        {/* Employee info card */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-lg flex-shrink-0"
+            style={{background:'linear-gradient(135deg,#c2410c,#f97316)'}}>
+            {employee.name.charAt(0)}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-gray-800">{employee.name}</p>
+            <p className="text-sm text-gray-500">{employee.id} · {employee.type}</p>
+          </div>
+          <div className="text-right hidden sm:block">
+            <p className="text-xs text-gray-400">Monthly Salary</p>
+            <p className="font-bold text-gray-800">{fmt(employee.salary)}</p>
+          </div>
+        </div>
+
+        {/* Payslip list */}
+        <div>
+          <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">My Payslips</h2>
+          {myPayslips.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center">
+              <FileText size={36} className="mx-auto text-gray-200 mb-3"/>
+              <p className="text-gray-400 text-sm">No released payslips yet.</p>
+              <p className="text-gray-300 text-xs mt-1">Your payslips will appear here once HR releases them.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {myPayslips.map(({ run, payslip }) => {
+                const net = (payslip.netPay ?? payslip.grossPay ?? 0);
+                const label = run.label || run.period || run.dateStr || 'Payroll';
+                const cutLabel = run.cutOff === 1 ? '1st Cut-Off' : run.cutOff === 2 ? '2nd Cut-Off' : `Cut-Off ${run.cutOff}`;
+                return (
+                  <button key={run.id} onClick={() => setSelected({ run, payslip })}
+                    className="w-full bg-white rounded-xl border border-gray-100 shadow-sm hover:border-orange-200 hover:shadow-md transition-all p-4 flex items-center gap-4 text-left">
+                    <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                      style={{background:'#fff7ed',color:'#c2410c'}}>
+                      <FileText size={18}/>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-gray-800 text-sm">{label}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{cutLabel} · Released</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-400">Net Pay</p>
+                      <p className="font-bold text-emerald-600">{fmt(net)}</p>
+                    </div>
+                    <ChevronRight size={16} className="text-gray-300 flex-shrink-0"/>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Payslip viewer modal */}
+      {selected && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto"
+          style={{background:'rgba(0,0,0,0.5)'}}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md my-6 overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div>
+                <p className="font-bold text-gray-800">Payslip</p>
+                <p className="text-xs text-gray-400">{selected.run.label || selected.run.period}</p>
+              </div>
+              <button onClick={() => setSelected(null)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+                <X size={18}/>
+              </button>
+            </div>
+            <div className="overflow-y-auto max-h-[75vh] p-4">
+              <PayslipModal
+                payslip={selected.payslip}
+                employee={employee}
+                runPeriod={selected.run.label || selected.run.period || ''}
+                releaseDateLabel={selected.run.releaseDate || selected.run.dateStr || ''}
+                otEntries={otEntries}
+                cutOffStartDate={selected.run.cutOffStart || ''}
+                onClose={() => setSelected(null)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <p className="text-center text-gray-300 text-xs pb-6">DRAGON AI Payroll System © {new Date().getFullYear()}</p>
+    </div>
+  );
+}
+
+function LoginPage({ employees, onLogin, onEmpLogin }) {
+  const [tab,      setTab]      = useState('admin'); // 'admin' | 'employee'
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [empId,    setEmpId]    = useState('');
+  const [empPw,    setEmpPw]    = useState('');
   const [showPw,   setShowPw]   = useState(false);
   const [error,    setError]    = useState('');
   const [loading,  setLoading]  = useState(false);
 
-  function handleSubmit(e) {
+  function handleAdminSubmit(e) {
     e.preventDefault();
-    setError('');
-    setLoading(true);
+    setError(''); setLoading(true);
     setTimeout(() => {
       const creds = JSON.parse(localStorage.getItem('payroll_credentials') || 'null')
         || { username: 'admin', password: 'admin123' };
@@ -5400,10 +5608,29 @@ function LoginPage({ onLogin }) {
     }, 600);
   }
 
+  function handleEmpSubmit(e) {
+    e.preventDefault();
+    setError(''); setLoading(true);
+    setTimeout(() => {
+      const emp = employees.find(e =>
+        e.id.toLowerCase() === empId.trim().toLowerCase()
+      );
+      const expectedPw = emp?.loginPassword || emp?.id || '';
+      if (emp && empPw === expectedPw) {
+        onEmpLogin(emp.id);
+      } else {
+        setError('Invalid Employee ID or password.');
+      }
+      setLoading(false);
+    }, 600);
+  }
+
+  const fieldCls = 'w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition';
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50" style={{background:'linear-gradient(135deg,#1a0e00 0%,#3b1a00 60%,#c2410c 100%)'}}>
+    <div className="min-h-screen flex items-center justify-center" style={{background:'linear-gradient(135deg,#1a0e00 0%,#3b1a00 60%,#c2410c 100%)'}}>
       <div className="w-full max-w-sm mx-4">
-        {/* Logo card */}
+        {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <div className="w-20 h-20 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center mb-4 shadow-xl">
             <img src="/dragonai-logo.png" alt="Dragon AI" className="w-14 h-14 object-contain"
@@ -5413,55 +5640,80 @@ function LoginPage({ onLogin }) {
           <p className="text-orange-300 text-sm font-medium mt-0.5">Payroll System</p>
         </div>
 
-        {/* Form */}
-        <div className="bg-white rounded-2xl shadow-2xl p-8">
-          <h2 className="text-lg font-bold text-gray-800 mb-1">Sign in</h2>
-          <p className="text-sm text-gray-400 mb-6">Enter your credentials to continue</p>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Username</label>
-              <input
-                type="text"
-                value={username}
-                onChange={e => setUsername(e.target.value)}
-                placeholder="Username"
-                autoFocus
-                required
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Password</label>
-              <div className="relative">
-                <input
-                  type={showPw ? 'text' : 'password'}
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder="Password"
-                  required
-                  className="w-full px-4 py-2.5 pr-10 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition"
-                />
-                <button type="button" onClick={() => setShowPw(v => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                  {showPw ? <Unlock size={15}/> : <Lock size={15}/>}
-                </button>
-              </div>
-            </div>
-
-            {error && (
-              <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
-                <AlertCircle size={14}/> {error}
-              </div>
-            )}
-
-            <button type="submit" disabled={loading}
-              className="w-full py-2.5 rounded-xl bg-orange-700 hover:bg-orange-800 text-white font-semibold text-sm transition disabled:opacity-60 flex items-center justify-center gap-2 mt-2">
-              {loading ? (
-                <><RefreshCw size={14} className="animate-spin"/> Signing in…</>
-              ) : 'Sign In'}
+        {/* Card */}
+        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+          {/* Tab switcher */}
+          <div className="flex border-b border-gray-100">
+            <button onClick={() => { setTab('admin'); setError(''); }}
+              className={`flex-1 py-3 text-sm font-semibold flex items-center justify-center gap-2 transition ${tab==='admin' ? 'text-orange-700 border-b-2 border-orange-600 bg-orange-50/60' : 'text-gray-400 hover:text-gray-600'}`}>
+              <ShieldCheck size={14}/> HR / Admin
             </button>
-          </form>
+            <button onClick={() => { setTab('employee'); setError(''); }}
+              className={`flex-1 py-3 text-sm font-semibold flex items-center justify-center gap-2 transition ${tab==='employee' ? 'text-orange-700 border-b-2 border-orange-600 bg-orange-50/60' : 'text-gray-400 hover:text-gray-600'}`}>
+              <User size={14}/> Employee Portal
+            </button>
+          </div>
+
+          <div className="p-8">
+            {tab === 'admin' ? (
+              <>
+                <h2 className="text-lg font-bold text-gray-800 mb-1">Admin Sign In</h2>
+                <p className="text-sm text-gray-400 mb-6">HR and payroll administrator access</p>
+                <form onSubmit={handleAdminSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Username</label>
+                    <input type="text" value={username} onChange={e=>setUsername(e.target.value)}
+                      placeholder="Username" autoFocus required className={fieldCls}/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Password</label>
+                    <div className="relative">
+                      <input type={showPw?'text':'password'} value={password} onChange={e=>setPassword(e.target.value)}
+                        placeholder="Password" required className={`${fieldCls} pr-10`}/>
+                      <button type="button" onClick={()=>setShowPw(v=>!v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                        {showPw ? <Unlock size={15}/> : <Lock size={15}/>}
+                      </button>
+                    </div>
+                  </div>
+                  {error && <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm"><AlertCircle size={14}/>{error}</div>}
+                  <button type="submit" disabled={loading}
+                    className="w-full py-2.5 rounded-xl bg-orange-700 hover:bg-orange-800 text-white font-semibold text-sm transition disabled:opacity-60 flex items-center justify-center gap-2 mt-2">
+                    {loading ? <><RefreshCw size={14} className="animate-spin"/> Signing in…</> : 'Sign In'}
+                  </button>
+                </form>
+              </>
+            ) : (
+              <>
+                <h2 className="text-lg font-bold text-gray-800 mb-1">Employee Portal</h2>
+                <p className="text-sm text-gray-400 mb-6">View your payslips and payroll history</p>
+                <form onSubmit={handleEmpSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Employee ID</label>
+                    <input type="text" value={empId} onChange={e=>setEmpId(e.target.value)}
+                      placeholder="e.g. E001" autoFocus required className={fieldCls}/>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Password</label>
+                    <div className="relative">
+                      <input type={showPw?'text':'password'} value={empPw} onChange={e=>setEmpPw(e.target.value)}
+                        placeholder="Your portal password" required className={`${fieldCls} pr-10`}/>
+                      <button type="button" onClick={()=>setShowPw(v=>!v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                        {showPw ? <Unlock size={15}/> : <Lock size={15}/>}
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1.5">Default password is your Employee ID (e.g. E001)</p>
+                  </div>
+                  {error && <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm"><AlertCircle size={14}/>{error}</div>}
+                  <button type="submit" disabled={loading}
+                    className="w-full py-2.5 rounded-xl bg-orange-700 hover:bg-orange-800 text-white font-semibold text-sm transition disabled:opacity-60 flex items-center justify-center gap-2 mt-2">
+                    {loading ? <><RefreshCw size={14} className="animate-spin"/> Signing in…</> : 'Access My Payslips'}
+                  </button>
+                </form>
+              </>
+            )}
+          </div>
         </div>
 
         <p className="text-center text-white/30 text-xs mt-6">DRAGON AI © {new Date().getFullYear()}</p>
@@ -5777,6 +6029,8 @@ export default function PayrollApp() {
     setActivePage(page);
   }
 
+  const [empSession, setEmpSession] = useState(() => sessionStorage.getItem('emp_session') || null);
+
   function handleLogin() {
     sessionStorage.setItem('payroll_auth', '1');
     setIsLoggedIn(true);
@@ -5787,7 +6041,15 @@ export default function PayrollApp() {
     setIsLoggedIn(false);
   }
 
-  if (!isLoggedIn) return <LoginPage onLogin={handleLogin}/>;
+  function handleEmpLogin(empId) {
+    sessionStorage.setItem('emp_session', empId);
+    setEmpSession(empId);
+  }
+
+  function handleEmpLogout() {
+    sessionStorage.removeItem('emp_session');
+    setEmpSession(null);
+  }
 
   if (dbLoading) return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-4" style={{background:'linear-gradient(135deg,#1a0e00 0%,#3b1a00 60%,#c2410c 100%)'}}>
@@ -5796,6 +6058,18 @@ export default function PayrollApp() {
       <p className="text-orange-300 text-sm">Connecting to database</p>
     </div>
   );
+
+  if (empSession) return (
+    <EmployeePortal
+      empId={empSession}
+      employees={state.employees}
+      payrollRuns={state.payrollRuns}
+      otEntries={state.otEntries}
+      onLogout={handleEmpLogout}
+    />
+  );
+
+  if (!isLoggedIn) return <LoginPage employees={state.employees} onLogin={handleLogin} onEmpLogin={handleEmpLogin}/>;
 
   return (
     <AppCtx.Provider value={{ state, dispatch }}>
