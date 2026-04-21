@@ -2290,7 +2290,7 @@ function PayslipModal({ payslip, employee, runPeriod, releaseDateLabel, otEntrie
         </div>
 
         {/* ── EARNINGS + DEDUCTIONS ── */}
-        <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
 
           {/* EARNINGS */}
           <div className="border border-gray-200 rounded-xl overflow-hidden">
@@ -5654,9 +5654,9 @@ function EmployeePortal({ empId, employees, payrollRuns, otEntries, onLogout }) 
       {/* ── Full payslip modal (same format as admin) ── */}
       {selected && (
         <div className="fixed inset-0 z-50 overflow-y-auto" style={{background:'rgba(0,0,0,0.65)'}}>
-          <div className="min-h-full flex items-start justify-center p-4 py-8">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-              <div className="p-5">
+          <div className="min-h-full flex items-start justify-center p-3 py-6">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl">
+              <div className="p-4 sm:p-6">
                 <PayslipModal
                   payslip={selected.payslip}
                   employee={employee}
