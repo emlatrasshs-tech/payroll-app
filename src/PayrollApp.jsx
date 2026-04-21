@@ -2057,7 +2057,8 @@ function EmployeeManagement() {
 // EMPLOYEE PORTAL PASSWORD MODAL (admin side)
 // ─────────────────────────────────────────────────────────────
 function EmpPortalPasswordModal({ employee, onSave, onClose }) {
-  const currentPw = employee.loginPassword || employee.id;
+  const portalUsername = getEmpPortalUsername(employee);
+  const currentPw = employee.loginPassword || '1234';
   const [newPw,    setNewPw]    = useState('');
   const [confirm,  setConfirm]  = useState('');
   const [showPw,   setShowPw]   = useState(false);
@@ -2066,9 +2067,9 @@ function EmpPortalPasswordModal({ employee, onSave, onClose }) {
   function handleSave(e) {
     e.preventDefault();
     setError('');
-    if (!newPw.trim())            { setError('Password cannot be empty.'); return; }
-    if (newPw.length < 4)         { setError('Password must be at least 4 characters.'); return; }
-    if (newPw !== confirm)         { setError('Passwords do not match.'); return; }
+    if (!newPw.trim())   { setError('Password cannot be empty.'); return; }
+    if (newPw.length < 4){ setError('Password must be at least 4 characters.'); return; }
+    if (newPw !== confirm){ setError('Passwords do not match.'); return; }
     onSave({ ...employee, loginPassword: newPw.trim() });
   }
 
@@ -2078,8 +2079,10 @@ function EmpPortalPasswordModal({ employee, onSave, onClose }) {
         <KeyRound size={15} className="mt-0.5 flex-shrink-0"/>
         <div>
           <p className="font-semibold">{employee.name}</p>
-          <p className="text-xs text-indigo-600 mt-0.5">Employee ID: <strong>{employee.id}</strong> · Current password: <strong>{currentPw}</strong></p>
-          <p className="text-xs text-indigo-500 mt-1">The employee uses their Employee ID and this password to log in to the Employee Portal.</p>
+          <p className="text-xs text-indigo-600 mt-0.5">
+            Portal username: <strong>{portalUsername}</strong> · Current password: <strong>{currentPw}</strong>
+          </p>
+          <p className="text-xs text-indigo-500 mt-1">The employee logs in using <strong>{portalUsername}</strong> as their username.</p>
         </div>
       </div>
       <form onSubmit={handleSave} className="space-y-4">
@@ -2103,9 +2106,9 @@ function EmpPortalPasswordModal({ employee, onSave, onClose }) {
         </div>
         {error && <p className="text-sm text-red-500 flex items-center gap-1.5"><AlertCircle size={13}/>{error}</p>}
         <div className="flex gap-3 justify-between items-center pt-1">
-          <button type="button" onClick={() => onSave({ ...employee, loginPassword: employee.id })}
+          <button type="button" onClick={() => onSave({ ...employee, loginPassword: '1234' })}
             className="text-xs text-gray-400 hover:text-gray-600 underline">
-            Reset to default (Employee ID)
+            Reset to default (1234)
           </button>
           <div className="flex gap-2">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-gray-200 hover:bg-gray-50">Cancel</button>
@@ -5583,6 +5586,35 @@ function EmployeePortal({ empId, employees, payrollRuns, otEntries, onLogout }) 
   );
 }
 
+// Derives the employee portal username from their name fields.
+// Format: FirstName + LastInitial + "."  e.g. "MaverickA."
+function getEmpPortalUsername(emp) {
+  let firstName = (emp.firstName || '').trim();
+  let lastName  = (emp.lastName  || '').trim();
+
+  // Fallback: parse from full name if split fields are empty
+  if (!firstName || !lastName) {
+    const name = (emp.name || '').trim();
+    if (name.includes(',')) {
+      // Format: LASTNAME, FIRSTNAME MIDDLENAME
+      const [last, rest = ''] = name.split(',').map(s => s.trim());
+      lastName  = last;
+      firstName = rest.split(' ')[0] || '';
+    } else {
+      // Format: FIRSTNAME MIDDLENAME LASTNAME
+      const parts = name.split(' ').filter(Boolean);
+      firstName = parts[0] || '';
+      lastName  = parts[parts.length - 1] || '';
+    }
+  }
+
+  if (!firstName || !lastName) return emp.id; // ultimate fallback
+
+  const first = firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase();
+  const lastInitial = lastName.charAt(0).toUpperCase();
+  return `${first}${lastInitial}.`;
+}
+
 function LoginPage({ employees, onLogin, onEmpLogin }) {
   const [tab,      setTab]      = useState('admin'); // 'admin' | 'employee'
   const [username, setUsername] = useState('');
@@ -5612,14 +5644,15 @@ function LoginPage({ employees, onLogin, onEmpLogin }) {
     e.preventDefault();
     setError(''); setLoading(true);
     setTimeout(() => {
+      const input = empId.trim().toLowerCase();
       const emp = employees.find(e =>
-        e.id.toLowerCase() === empId.trim().toLowerCase()
+        getEmpPortalUsername(e).toLowerCase() === input
       );
-      const expectedPw = emp?.loginPassword || emp?.id || '';
+      const expectedPw = emp?.loginPassword || '1234';
       if (emp && empPw === expectedPw) {
         onEmpLogin(emp.id);
       } else {
-        setError('Invalid Employee ID or password.');
+        setError('Invalid username or password.');
       }
       setLoading(false);
     }, 600);
@@ -5689,9 +5722,10 @@ function LoginPage({ employees, onLogin, onEmpLogin }) {
                 <p className="text-sm text-gray-400 mb-6">View your payslips and payroll history</p>
                 <form onSubmit={handleEmpSubmit} className="space-y-4">
                   <div>
-                    <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Employee ID</label>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Username</label>
                     <input type="text" value={empId} onChange={e=>setEmpId(e.target.value)}
-                      placeholder="e.g. E001" autoFocus required className={fieldCls}/>
+                      placeholder="e.g. MaverickA." autoFocus required className={fieldCls}/>
+                    <p className="text-xs text-gray-400 mt-1.5">First name + first letter of surname (e.g. <strong>MaverickA.</strong>)</p>
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Password</label>
@@ -5703,7 +5737,7 @@ function LoginPage({ employees, onLogin, onEmpLogin }) {
                         {showPw ? <Unlock size={15}/> : <Lock size={15}/>}
                       </button>
                     </div>
-                    <p className="text-xs text-gray-400 mt-1.5">Default password is your Employee ID (e.g. E001)</p>
+                    <p className="text-xs text-gray-400 mt-1.5">Default password is <strong>1234</strong></p>
                   </div>
                   {error && <div className="flex items-center gap-2 px-3 py-2.5 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm"><AlertCircle size={14}/>{error}</div>}
                   <button type="submit" disabled={loading}
