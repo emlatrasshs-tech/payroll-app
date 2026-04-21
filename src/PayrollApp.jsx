@@ -2136,7 +2136,7 @@ function empTypeLabel(type) {
 // ─────────────────────────────────────────────────────────────
 // PAYSLIP MODAL
 // ─────────────────────────────────────────────────────────────
-function PayslipModal({ payslip, employee, runPeriod, releaseDateLabel, otEntries, cutOffStartDate, onClose }) {
+function PayslipModal({ payslip, employee, runPeriod, releaseDateLabel, otEntries, cutOffStartDate, onClose, autoDownload }) {
   if (!payslip || !employee) return null;
   const slipRef = useRef();
   const [downloading, setDownloading] = useState(false);
@@ -2187,17 +2187,32 @@ function PayslipModal({ payslip, employee, runPeriod, releaseDateLabel, otEntrie
   const totalDeductions = sssAmt + phAmt + hdmfAmt + sssLoan + hdmfLoan + companyLoan + otherLoansAmt;
   const netPay   = adjustedGross - totalDeductions;
 
-  // ── Download as PNG via html2canvas ──
+  // ── Download as PNG via html2canvas (expanded clone for spacious output) ──
   const downloadImage = async () => {
     setDownloading(true);
     try {
       const html2canvas = (await import('html2canvas')).default;
-      const canvas = await html2canvas(slipRef.current, {
+      const el = slipRef.current;
+
+      // Render an off-screen wider clone for a cleaner, more spacious image
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = 'position:fixed;top:-9999px;left:-9999px;z-index:-999;pointer-events:none;';
+      const clone = el.cloneNode(true);
+      clone.style.width = '720px';
+      clone.style.padding = '52px 60px';
+      clone.style.borderRadius = '0';
+      clone.style.boxShadow = 'none';
+      wrapper.appendChild(clone);
+      document.body.appendChild(wrapper);
+
+      const canvas = await html2canvas(clone, {
         scale: 2,
         useCORS: true,
         backgroundColor: '#ffffff',
         logging: false,
       });
+      document.body.removeChild(wrapper);
+
       const link = document.createElement('a');
       link.download = `Payslip_${employee.name.replace(/\s+/g,'_')}_${runPeriod.replace(/[\s,–]+/g,'_')}.png`;
       link.href = canvas.toDataURL('image/png');
@@ -2205,6 +2220,14 @@ function PayslipModal({ payslip, employee, runPeriod, releaseDateLabel, otEntrie
     } catch(e) { console.error(e); }
     setDownloading(false);
   };
+
+  // Auto-download on mount (used by "Download Latest" quick button)
+  useEffect(() => {
+    if (autoDownload) {
+      const t = setTimeout(downloadImage, 400); // wait for images to load
+      return () => clearTimeout(t);
+    }
+  }, [autoDownload]); // eslint-disable-line
 
   // Reusable row helpers
   const Row = ({ label, value, color='text-gray-700', indent=false, bold=false }) => (
@@ -5455,9 +5478,10 @@ function Sidebar({ active, setActive, collapsed, setCollapsed }) {
 // ─────────────────────────────────────────────────────────────
 function EmployeePortal({ empId, employees, payrollRuns, otEntries, onLogout }) {
   const employee = employees.find(e => e.id === empId);
-  const [selected, setSelected] = useState(null); // { run, payslip }
+  const [selected, setSelected]       = useState(null);   // { run, payslip, autoDownload? }
+  const [notifBanner, setNotifBanner] = useState(null);   // string message
 
-  // Show ALL payroll runs that have a payslip for this employee, all cut-offs
+  // ALL payroll runs that include this employee, newest first
   const myPayslips = useMemo(() => {
     return payrollRuns
       .flatMap(run => {
@@ -5467,6 +5491,37 @@ function EmployeePortal({ empId, employees, payrollRuns, otEntries, onLogout }) 
       })
       .sort((a, b) => (b.run.dateStr || '').localeCompare(a.run.dateStr || ''));
   }, [payrollRuns, empId]);
+
+  const latest = myPayslips[0] || null;
+
+  // ── Push / in-app notification: detect new payslips since last visit ──
+  useEffect(() => {
+    if (!employee || !latest) return;
+    const lsKey  = `emp_seen_${empId}`;
+    const seenId = localStorage.getItem(lsKey);
+    const newId  = latest.run.id;
+
+    if (newId && seenId !== newId) {
+      const period = latest.run.label || latest.run.period || 'your latest period';
+      const msg = `Your payslip for ${period} is now available.`;
+      setNotifBanner(msg);
+
+      // Browser push notification (if permission already granted or can be requested)
+      if ('Notification' in window) {
+        const fire = () => {
+          try {
+            new Notification('Dragon AI Payroll', { body: msg, icon: '/dragonai-logo.png' });
+          } catch(_) {}
+        };
+        if (Notification.permission === 'granted') {
+          fire();
+        } else if (Notification.permission !== 'denied') {
+          Notification.requestPermission().then(p => { if (p === 'granted') fire(); });
+        }
+      }
+      localStorage.setItem(lsKey, newId);
+    }
+  }, [empId, latest, employee]);
 
   if (!employee) return (
     <div className="min-h-screen flex items-center justify-center" style={{background:'linear-gradient(135deg,#1a0e00 0%,#3b1a00 60%,#c2410c 100%)'}}>
@@ -5478,14 +5533,17 @@ function EmployeePortal({ empId, employees, payrollRuns, otEntries, onLogout }) 
   );
 
   const statusBadge = (status) => {
-    if (status === 'Released') return <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-700">Released</span>;
+    if (status === 'Released')   return <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-700">Released</span>;
     if (status === 'Processing') return <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700">Processing</span>;
     return <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-500">{status || 'Draft'}</span>;
   };
 
+  const latestNet = latest ? (latest.payslip.netPay ?? latest.payslip.grossPay ?? 0) : 0;
+
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
+
+      {/* ── Sticky header ── */}
       <div className="sticky top-0 z-20 shadow-md" style={{background:'linear-gradient(90deg,#1a0e00 0%,#7c2d12 100%)'}}>
         <div className="max-w-2xl mx-auto px-4 py-3.5 flex items-center gap-3">
           <img src="/dragonai-logo.png" alt="Dragon AI" className="w-8 h-8 object-contain flex-shrink-0"
@@ -5501,69 +5559,99 @@ function EmployeePortal({ empId, employees, payrollRuns, otEntries, onLogout }) 
         </div>
       </div>
 
-      {/* Content */}
-      <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
-        {/* Employee info card */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-lg flex-shrink-0"
-            style={{background:'linear-gradient(135deg,#c2410c,#f97316)'}}>
-            {employee.name.charAt(0)}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-bold text-gray-800">{employee.name}</p>
-            <p className="text-sm text-gray-500">{employee.id} · {employee.type}</p>
-          </div>
-          <div className="text-right hidden sm:block">
-            <p className="text-xs text-gray-400">Monthly Salary</p>
-            <p className="font-bold text-gray-800">{fmt(employee.salary)}</p>
-          </div>
+      {/* ── New payslip banner ── */}
+      {notifBanner && (
+        <div className="bg-emerald-600 text-white px-4 py-3 flex items-center gap-3">
+          <Bell size={15} className="flex-shrink-0"/>
+          <span className="text-sm font-medium flex-1">{notifBanner}</span>
+          <button onClick={() => setNotifBanner(null)} className="text-white/70 hover:text-white flex-shrink-0"><X size={16}/></button>
         </div>
+      )}
 
-        {/* Payslip list */}
-        <div>
-          <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">
-            My Payslips <span className="text-gray-300 font-normal normal-case">({myPayslips.length})</span>
-          </h2>
-          {myPayslips.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center">
-              <FileText size={36} className="mx-auto text-gray-200 mb-3"/>
-              <p className="text-gray-400 text-sm">No payslips yet.</p>
-              <p className="text-gray-300 text-xs mt-1">Your payslips will appear here once payroll is processed.</p>
+      <div className="max-w-2xl mx-auto px-4 py-5 space-y-5">
+
+        {/* ── Latest Net Pay card (dashboard) ── */}
+        {latest ? (
+          <div className="rounded-2xl overflow-hidden shadow-lg" style={{background:'linear-gradient(135deg,#7c2d12 0%,#c2410c 60%,#ea580c 100%)'}}>
+            <div className="px-6 pt-6 pb-4">
+              <p className="text-orange-200 text-xs font-semibold uppercase tracking-widest mb-1">Latest Net Pay</p>
+              <p className="text-5xl font-black text-white tabular-nums tracking-tight">{fmt(latestNet)}</p>
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                <span className="text-orange-200 text-sm">{latest.run.label || latest.run.period || latest.run.dateStr}</span>
+                <span className="text-orange-300 text-xs">·</span>
+                <span className="text-orange-200 text-xs">{latest.run.cutOff === 1 ? '1st Cut-Off' : '2nd Cut-Off'}</span>
+                {statusBadge(latest.run.status)}
+              </div>
             </div>
-          ) : (
+            <div className="px-6 pb-5 flex gap-3 flex-wrap">
+              <button onClick={() => setSelected({ ...latest, autoDownload: false })}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white text-sm font-semibold transition">
+                <Eye size={15}/> View Payslip
+              </button>
+              <button onClick={() => setSelected({ ...latest, autoDownload: true })}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white text-orange-700 hover:bg-orange-50 text-sm font-semibold transition shadow-sm">
+                <Download size={15}/> Download Latest Payslip
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-2xl p-8 text-center shadow-sm border border-gray-100 bg-white">
+            <FileText size={36} className="mx-auto text-gray-200 mb-3"/>
+            <p className="text-gray-400 text-sm font-medium">No payslips yet</p>
+            <p className="text-gray-300 text-xs mt-1">Your payslips will appear here once payroll is processed.</p>
+          </div>
+        )}
+
+        {/* ── All payslips list ── */}
+        {myPayslips.length > 0 && (
+          <div>
+            <h2 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 px-1">
+              All Payslips &nbsp;<span className="text-gray-300 font-normal">{myPayslips.length}</span>
+            </h2>
             <div className="space-y-2">
               {myPayslips.map(({ run, payslip }) => {
-                const net = (payslip.netPay ?? payslip.grossPay ?? 0);
+                const net = payslip.netPay ?? payslip.grossPay ?? 0;
                 const label = run.label || run.period || run.dateStr || 'Payroll';
                 const cutLabel = run.cutOff === 1 ? '1st Cut-Off' : run.cutOff === 2 ? '2nd Cut-Off' : `Cut-Off ${run.cutOff}`;
+                const isLatest = run.id === latest?.run?.id;
                 return (
-                  <button key={run.id} onClick={() => setSelected({ run, payslip })}
-                    className="w-full bg-white rounded-xl border border-gray-100 shadow-sm hover:border-orange-300 hover:shadow-md transition-all p-4 flex items-center gap-4 text-left">
-                    <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-                      style={{background:'#fff7ed',color:'#c2410c'}}>
-                      <FileText size={18}/>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-gray-800 text-sm">{label}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-xs text-gray-400">{cutLabel}</span>
-                        {statusBadge(run.status)}
+                  <div key={run.id}
+                    className={`bg-white rounded-xl border shadow-sm transition-all flex items-center gap-3 pr-2 ${isLatest ? 'border-orange-200' : 'border-gray-100 hover:border-orange-200 hover:shadow-md'}`}>
+                    {/* Click to view */}
+                    <button onClick={() => setSelected({ run, payslip, autoDownload: false })}
+                      className="flex-1 flex items-center gap-3 p-3.5 text-left min-w-0">
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+                        style={{background: isLatest ? '#fff7ed' : '#f9fafb', color:'#c2410c'}}>
+                        <FileText size={16}/>
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-gray-400">Net Pay</p>
-                      <p className="font-bold text-emerald-600">{fmt(net)}</p>
-                    </div>
-                    <ChevronRight size={16} className="text-gray-300 flex-shrink-0"/>
-                  </button>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-gray-800 text-sm truncate">{label}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                          <span className="text-xs text-gray-400">{cutLabel}</span>
+                          {statusBadge(run.status)}
+                          {isLatest && <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-100 text-orange-700">Latest</span>}
+                        </div>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-xs text-gray-400">Net Pay</p>
+                        <p className="font-bold text-emerald-600 text-sm">{fmt(net)}</p>
+                      </div>
+                    </button>
+                    {/* Download icon */}
+                    <button onClick={() => setSelected({ run, payslip, autoDownload: true })}
+                      title="Download as Image"
+                      className="p-2 rounded-lg hover:bg-orange-50 text-gray-300 hover:text-orange-600 transition flex-shrink-0">
+                      <Download size={15}/>
+                    </button>
+                  </div>
                 );
               })}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
-      {/* Full payslip modal — same format as admin */}
+      {/* ── Full payslip modal (same format as admin) ── */}
       {selected && (
         <div className="fixed inset-0 z-50 overflow-y-auto" style={{background:'rgba(0,0,0,0.65)'}}>
           <div className="min-h-full flex items-start justify-center p-4 py-8">
@@ -5576,6 +5664,7 @@ function EmployeePortal({ empId, employees, payrollRuns, otEntries, onLogout }) 
                   releaseDateLabel={selected.run.releaseDate || selected.run.dateStr || ''}
                   otEntries={otEntries}
                   cutOffStartDate={selected.run.cutOffStart || ''}
+                  autoDownload={selected.autoDownload}
                   onClose={() => setSelected(null)}
                 />
               </div>
@@ -5584,7 +5673,7 @@ function EmployeePortal({ empId, employees, payrollRuns, otEntries, onLogout }) 
         </div>
       )}
 
-      <p className="text-center text-gray-300 text-xs pb-6">DRAGON AI Payroll System © {new Date().getFullYear()}</p>
+      <p className="text-center text-gray-300 text-xs pb-6 mt-2">DRAGON AI Payroll System © {new Date().getFullYear()}</p>
     </div>
   );
 }
